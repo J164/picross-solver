@@ -80,16 +80,21 @@ def select_puzzles_from_config(config: dict) -> list:
 
     return selected_puzzles
 
-def run_benchmark(run_fn, binary: Path, puzzles: list, trials: int, timeout: float) -> list[dict]:
+def run_benchmark(run_fn, binary: Path, puzzles: list, trials: int, timeout: float, flags: list[str]) -> list[dict]:
     report = []
     for puzzle in puzzles:
         puzzle_path = PUZZLE_DIR / f"{puzzle['sha']}.non"
         times: list[float] = []
         phase_times: dict[str, list[float]] = {}
+        counters: dict[str, list[float]] = {}
         counts = {"ok": 0, "error": 0, "timeout": 0}
 
         for _ in range(trials):
-            status, elapsed, phases = run_fn(binary, puzzle_path, timeout)
+            status, elapsed, phases, trial_counters = run_fn(binary, puzzle_path, timeout, flags)
+            for key, value in (trial_counters or {}).items():
+                if key not in counters:
+                    counters[key] = []
+                counters[key].append(value)
             counts[status] += 1
             if elapsed is not None:
                 times.append(elapsed)
@@ -124,12 +129,20 @@ def run_benchmark(run_fn, binary: Path, puzzles: list, trials: int, timeout: flo
                 } for phase, values in phase_times.items()
             }
 
+        if len(counters) != 0:
+            entry["counters"] = { key: statistics.median(values) if all(isinstance(value, (int, float)) for value in values) else (values[0] if len(set(values)) > 0 else "empty") for key, values in counters.items() }
+
         report.append(entry)
 
     return report
 
+SOLVER_FLAGS = ("fp1", "dp_line_solver")
+
+def solver_flags(enabled: dict[str, bool]) -> list[str]:
+    return [f"--{name.replace('_', '-')}" for name in SOLVER_FLAGS if enabled.get(name)]
+
 def cmd_timing(args: argparse.Namespace) -> None:
-    binary = args.binary
+    binary = Path(args.binary) if args.binary is not None else args.default_binary
     if not binary.exists():
         raise SystemExit(f"binary not found: {binary}\n")
 
@@ -141,12 +154,21 @@ def cmd_timing(args: argparse.Namespace) -> None:
             puzzles = select_puzzles_from_config(config)
             trials = config.get("trials", args.trials)
             timeout = config.get("timeout", args.timeout)
+            enabled = {name: config.get(name, getattr(args, name)) for name in SOLVER_FLAGS}
+            max_search_nodes = config.get("max_search_nodes", args.max_search_nodes)
     else:
         puzzles = select_puzzles(args)
         trials = args.trials
         timeout = args.timeout
+        enabled = {name: getattr(args, name) for name in SOLVER_FLAGS}
+        max_search_nodes = args.max_search_nodes
 
-    report = run_benchmark(run, binary, puzzles, trials, timeout)
+    flags = solver_flags(enabled)
+    if max_search_nodes is not None:
+        if args.command != "phases":
+            raise SystemExit("--max-search-nodes is only supported by the phases command\n")
+        flags += ["--max-search-nodes", str(max_search_nodes)]
+    report = run_benchmark(run, binary, puzzles, trials, timeout, flags)
 
     print(json.dumps(report))
 
@@ -156,7 +178,11 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--num-puzzles", type=int, default=10, help="number of puzzles randomly selected to solve (default: 10)")
     parser.add_argument("--seed", type=int, default=None, help="seed for --num-puzzles (default: None)")
     parser.add_argument("--source", type=str, default=None, choices=list(SOURCES), help="source to select puzzles from (default: all)")
-    parser.add_argument("--config", type=str, default=None, help="path to JSON config file: {\"seed\":, \"trials\":, \"timeout\":,\n\"sources\": {name: count,}, \"include\": [sha,]}")
+    parser.add_argument("--config", type=str, default=None, help="path to JSON config file: {\"seed\":, \"trials\":, \"timeout\":, \"fp1\":, \"dp_line_solver\":, \"max_search_nodes\":,\n\"sources\": {name: count,}, \"include\": [sha,]}")
+    parser.add_argument("--fp1", action="store_true", help="enable the FP1 probing optimization")
+    parser.add_argument("--dp-line-solver", action="store_true", help="enable the DP line solver")
+    parser.add_argument("--max-search-nodes", type=int, default=None, help="maximum number of search nodes the solver can try")
+    parser.add_argument("--binary", type=str, default=None, help="solver binary to run (default: build/bin)")
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="bench.py")
@@ -164,11 +190,11 @@ def main() -> None:
 
     timing_parser = subparsers.add_parser("timing", help="Run the full solver on each puzzle")
     add_common_args(timing_parser)
-    timing_parser.set_defaults(func=cmd_timing, binary=DEFAULT_SOLVER)
+    timing_parser.set_defaults(func=cmd_timing, default_binary=DEFAULT_SOLVER)
 
     phases_parser = subparsers.add_parser("phases", help="Time each phase of solving on each puzzle")
     add_common_args(phases_parser)
-    phases_parser.set_defaults(func=cmd_timing, binary=DEFAULT_PHASE_DRIVER)
+    phases_parser.set_defaults(func=cmd_timing, default_binary=DEFAULT_PHASE_DRIVER)
 
     args = parser.parse_args()
     args.func(args)

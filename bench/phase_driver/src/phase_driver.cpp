@@ -1,6 +1,7 @@
 #include <picross/picross.h>
 #include <picross/picross_io.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -67,7 +68,27 @@ int main(int argc, char** argv)
     }
 
     const std::string filepath = argv[1];
-    const unsigned int max_solutions = argc > 2 ? static_cast<unsigned int>(std::stoul(argv[2])) : 2u;
+    unsigned int max_solutions = 2u;
+    unsigned long long max_search_nodes = 0u;
+    
+    picross::SolverFlags flags;
+    for (int i = 2; i < argc; i++) {
+        const std::string_view arg = argv[i];
+
+        if (arg == "--fp1") {
+            flags.enable_fp1 = true;
+        } else if (arg == "--dp-line-solver") {
+            flags.enable_dp_line_solver = true;
+        } else if (arg == "--max-search-nodes" && i + 1 < argc) {
+            max_search_nodes = std::stoull(argv[i + 1]);
+            i++;
+        } else if (i == 2) {
+            max_solutions = static_cast<unsigned int>(std::stoul(argv[i]));
+        } else {
+            std::cerr << "Unknown argument: " << arg << std::endl;
+            return EXIT_FAILURE;
+        }
+    }
 
     bool had_error = false;
     const picross::io::ErrorHandler err_handler = [&had_error](picross::io::ErrorCodeT code, std::string_view msg) {
@@ -82,14 +103,27 @@ int main(int argc, char** argv)
     const picross::InputGrid& input_grid = grids[0].m_input_grid;
 
     PhaseTimer timer;
-    const auto solver = picross::get_ref_solver();
-    solver->set_observer([&timer](picross::ObserverEvent event, const picross::Line*, const picross::ObserverData& data)
-    {
-        if (event == picross::ObserverEvent::INTERNAL_STATE)
-        {
+    const auto solver = picross::get_ref_solver(flags);
+
+    unsigned long long search_nodes = 0u;
+    unsigned long long probing_rounds = 0u;
+    std::uint32_t max_depth = 0u;
+    solver->set_observer([&](picross::ObserverEvent event, const picross::Line*, const picross::ObserverData& data) {
+        max_depth = std::max(max_depth, data.m_depth);
+        if (event == picross::ObserverEvent::INTERNAL_STATE) {
             timer.change_state(data.m_misc_i);
+            
+            if (state_to_phase(data.m_misc_i) == Phase::SEARCH) { 
+                search_nodes++; 
+            } else if (state_to_phase(data.m_misc_i) == Phase::PROBING) { 
+                probing_rounds++; 
+            }
         }
     });
+
+    if (max_search_nodes > 0u) {
+        solver->set_abort_function([&]() { return search_nodes >= max_search_nodes; });
+    }
 
     const auto wall_start = Clock::now();
     const auto result = solver->solve(input_grid, max_solutions);
@@ -98,7 +132,8 @@ int main(int argc, char** argv)
 
     std::ostringstream oss;
     oss << result.status;
-    const auto status = oss.str();
+    const bool budget_reached = max_search_nodes > 0u && search_nodes >= max_search_nodes && result.status == picross::Solver::Status::ABORTED;
+    const auto status = budget_reached ? std::string("BUDGET_REACHED") : oss.str();
 
     std::cout << "{";
         std::cout << "\"grid\":\"" << json_escape(input_grid.name()) << "\",";
@@ -106,6 +141,9 @@ int main(int argc, char** argv)
         std::cout << "\"status\":\"" << json_escape(status) << "\",";
         std::cout << "\"nb_solutions\":" << result.solutions.size() << ",";
         std::cout << "\"wall_time_s\":" << wall_time << ",";
+        std::cout << "\"search_nodes\":" << search_nodes << ",";
+        std::cout << "\"probing_rounds\":" << probing_rounds << ",";
+        std::cout << "\"max_depth\":" << max_depth << ",";
         std::cout << "\"phases_s\":{";
             std::cout << "\"" << "line_solving_and_propagation" << "\":" << timer.seconds[0] << ",";
             std::cout << "\"" << "probing" << "\":" << timer.seconds[1] << ",";
