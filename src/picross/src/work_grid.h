@@ -91,6 +91,7 @@ private:
     void partition_completed_lines();
     std::vector<LineId> sorted_edges() const;
     std::vector<LineId> sorted_lines_next_to_completed() const;
+    bool line_comparitor(const LineId& lhs, const LineId& rhs) const;
     void sort_by_nb_alternatives();
     bool is_sorted_by_nb_alternatives() const;
     LineId next_line_for_search() const;

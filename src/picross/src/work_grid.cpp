@@ -561,9 +561,7 @@ std::vector<LineId> WorkGrid<SolverPolicy>::sorted_edges() const
         }
     }
 
-    std::sort(lines.begin(), lines.end(), [this](const auto& lhs, const auto& rhs) {
-        return m_nb_alternatives[lhs.m_type][lhs.m_index] < m_nb_alternatives[rhs.m_type][rhs.m_index];
-    });
+    std::sort(lines.begin(), lines.end(), [this](const auto& lhs, const auto& rhs) { return line_comparitor(lhs, rhs); });
 
     return lines;
 }
@@ -593,29 +591,39 @@ std::vector<LineId> WorkGrid<SolverPolicy>::sorted_lines_next_to_completed() con
         }
     }
 
-    std::sort(lines.begin(), lines.end(), [this](const auto& lhs, const auto& rhs) {
-        return m_nb_alternatives[lhs.m_type][lhs.m_index] < m_nb_alternatives[rhs.m_type][rhs.m_index];
-    });
+    std::sort(lines.begin(), lines.end(), [this](const auto& lhs, const auto& rhs) { return line_comparitor(lhs, rhs); });
 
     return lines;
+}
+
+template <typename SolverPolicy>
+bool WorkGrid<SolverPolicy>::line_comparitor(const LineId& lhs, const LineId& rhs) const {
+    const auto lhs_nb_alternatives = m_nb_alternatives[lhs.m_type][lhs.m_index];
+    const auto rhs_nb_alternatives = m_nb_alternatives[rhs.m_type][rhs.m_index];
+    
+    if (lhs_nb_alternatives != rhs_nb_alternatives) {
+        return lhs_nb_alternatives < rhs_nb_alternatives;
+    }
+    
+    if (lhs.m_type != rhs.m_type) {
+        return lhs.m_type < rhs.m_type;
+    }
+
+    return lhs.m_index < rhs.m_index;
 }
 
 
 template <typename SolverPolicy>
 void WorkGrid<SolverPolicy>::sort_by_nb_alternatives()
 {
-    std::sort(m_all_lines.begin(), m_uncompleted_lines_end, [this](const auto& lhs, const auto& rhs) {
-        return m_nb_alternatives[lhs.m_type][lhs.m_index] < m_nb_alternatives[rhs.m_type][rhs.m_index];
-    });
+    std::sort(m_all_lines.begin(), m_uncompleted_lines_end, [this](const auto& lhs, const auto& rhs) { return line_comparitor(lhs, rhs); });
 }
 
 
 template <typename SolverPolicy>
 bool WorkGrid<SolverPolicy>::is_sorted_by_nb_alternatives() const
 {
-    return std::is_sorted(m_all_lines.cbegin(), AllLines::const_iterator(m_uncompleted_lines_end), [this](const auto& lhs, const auto& rhs) {
-        return m_nb_alternatives[lhs.m_type][lhs.m_index] < m_nb_alternatives[rhs.m_type][rhs.m_index];
-    });
+    return std::is_sorted(m_all_lines.cbegin(), AllLines::const_iterator(m_uncompleted_lines_end), [this](const auto& lhs, const auto& rhs) { return line_comparitor(lhs, rhs); });
 }
 
 
