@@ -10,7 +10,10 @@
 #include "line_span.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <random>
 #include <utility>
+#include <vector>
 
 
 namespace picross {
@@ -31,6 +34,25 @@ namespace {
     LineAlternatives::Reduction linear_reduction(const LineConstraint& constraint, const Line& known_tiles)
     {
         return LineAlternatives(constraint, known_tiles, get_binomial()).linear_reduction();
+    }
+
+    bool dp_matches_baseline(const InputGrid::Constraint& segments, const Line& known_tiles) {
+        const LineConstraint constraint(Line::ROW, segments);
+        const auto baseline = LineAlternatives(constraint, known_tiles, get_binomial()).full_reduction();
+        const auto dp = LineAlternatives(constraint, known_tiles, get_binomial()).full_reduction_dp();
+        
+        return dp.nb_alternatives == baseline.nb_alternatives && ((baseline.nb_alternatives == 0 && dp.nb_alternatives == 0) || (baseline.reduced_line == dp.reduced_line && baseline.is_fully_reduced == dp.is_fully_reduced));
+    }
+
+    void all_constraints(std::size_t size, InputGrid::Constraint& prefix, std::vector<InputGrid::Constraint>& out) {
+        out.push_back(prefix);
+        const std::size_t used = prefix.empty() ? 0u : static_cast<std::size_t>(compute_min_line_size(prefix)) + 1u;
+        
+        for (std::size_t len = 1u; used + len <= size; len++) {
+            prefix.push_back(static_cast<unsigned int>(len));
+            all_constraints(size, prefix, out);
+            prefix.pop_back();
+        }
     }
 }
 
@@ -705,5 +727,70 @@ TEST_CASE("linear_vs_full_reduction", "[line_alternatives]")
     }
 }
 
+TEST_CASE("full_reduction_dp_matches_baseline_on_all_short_lines", "[line_alternatives]") {
+    static constexpr Tile TILES[] = { Tile::UNKNOWN, Tile::EMPTY, Tile::FILLED };
+    for (std::size_t size = 1u; size <= 8u; size++) {
+        std::vector<InputGrid::Constraint> constraints;
+        InputGrid::Constraint prefix;
+        all_constraints(size, prefix, constraints);
+        
+        std::size_t patterns = 1u;
+        for (std::size_t i = 0u; i < size; i++) { 
+            patterns *= 3u; 
+        }
+        
+        for (std::size_t pattern = 0u; pattern < patterns; pattern++) {
+            Line known_tiles(Line::ROW, LINE_INDEX, size);
+            
+            std::size_t code = pattern;
+            for (std::size_t i = 0u; i < size; i++) { 
+                known_tiles[i] = TILES[code % 3u]; 
+                code /= 3u;
+            }
+            
+            for (const auto& segments : constraints) {
+                CHECK(dp_matches_baseline(segments, known_tiles));
+            }
+        }
+    }
+}
+
+TEST_CASE("full_reduction_dp_matches_baseline_on_random_lines", "[line_alternatives]")
+{
+    std::mt19937 rng(598u);
+    std::uniform_int_distribution<std::size_t> random_size(9u, 60u);
+    std::uniform_real_distribution<double> unit(0.0, 1.0);
+    
+    for (int trial = 0; trial < 20000; trial++) {
+        const std::size_t size = random_size(rng);
+        const double density = unit(rng);
+        const double reveal = unit(rng) * 0.6;
+        const bool consistent = unit(rng) < 0.8;
+
+        std::vector<bool> solution;
+        InputGrid::Constraint segments;
+        for (std::size_t i = 0u; i < size; i++) { 
+            const bool fill = unit(rng) < density;
+            solution.push_back(fill);
+            if (fill) {
+                if (i == 0u || !solution[i - 1u]) {
+                    segments.push_back(0u);
+                }
+
+                segments[segments.size() - 1]++;
+            } 
+        }
+        
+        Line known_tiles(Line::ROW, LINE_INDEX, size);
+        for (std::size_t i = 0u; i < size; i++) {
+            if (unit(rng) < reveal) {
+                const bool filled = consistent ? solution[i] : unit(rng) < 0.5;
+                known_tiles[i] = filled ? Tile::FILLED : Tile::EMPTY;
+            }
+        }
+
+        CHECK(dp_matches_baseline(segments, known_tiles));
+    }
+}
 
 } // namespace picross
