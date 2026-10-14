@@ -103,6 +103,7 @@ private:
     ProbingResult probe();
     ProbingResult probe(LineId line_id);
     ProbingResult probe_fp1();
+    ProbingResult probe_fp2();
     Solver::Status branch(const Solver::SolutionFound& solution_found);
     bool is_valid_solution() const;
     bool found_solution(const Solver::SolutionFound& solution_found) const;
