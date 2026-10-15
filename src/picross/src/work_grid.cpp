@@ -1071,13 +1071,19 @@ typename WorkGrid<SolverPolicy>::ProbingResult WorkGrid<SolverPolicy>::probe_fp1
                 return result;
             }
 
-            // FILLED contradicts so cell must be EMPTY
+            // FILLED contradicts so cell must be EMPTY, use deductions from EMPTY line-solve
             if (!filled_consistent && empty_consistent)
             {
-                Line confirmed = line_from_line_span(get_line(Line::ROW, row_idx));
-                confirmed[static_cast<unsigned int>(col_idx)] = Tile::EMPTY;
-                update_line(confirmed, m_nb_alternatives[Line::ROW][row_idx]);
-                m_line_is_fully_reduced[Line::ROW][row_idx] = false;
+                for (Line::Index reduced_row_idx = 0; reduced_row_idx < height(); reduced_row_idx++)
+                {
+                    const auto reduced_row = line_from_line_span(probing_work_grid.get_line(Line::ROW, reduced_row_idx));
+                    const auto nb_alt = m_nb_alternatives[Line::ROW][reduced_row_idx];
+                    const bool line_changed = update_line(reduced_row, nb_alt);
+                    if (line_changed)
+                    {
+                        m_line_is_fully_reduced[Line::ROW][reduced_row_idx] = false;
+                    }
+                }
                 partition_completed_lines();
 
                 result.m_grid_has_changed = true;
@@ -1085,13 +1091,20 @@ typename WorkGrid<SolverPolicy>::ProbingResult WorkGrid<SolverPolicy>::probe_fp1
                 return result;
             }
 
-            // EMPTY contradicts so cell must be FILLED
+            // EMPTY contradicts so cell must be FILLED, use deductions from FILLED line-solve
             if (filled_consistent && !empty_consistent)
             {
-                Line confirmed = line_from_line_span(get_line(Line::ROW, row_idx));
-                confirmed[static_cast<unsigned int>(col_idx)] = Tile::FILLED;
-                update_line(confirmed, m_nb_alternatives[Line::ROW][row_idx]);
-                m_line_is_fully_reduced[Line::ROW][row_idx] = false;
+                assert(snapshot_filled.has_value());
+                for (Line::Index reduced_row_idx = 0; reduced_row_idx < height(); reduced_row_idx++)
+                {
+                    const auto reduced_row = snapshot_filled->get_line(reduced_row_idx);
+                    const auto nb_alt = m_nb_alternatives[Line::ROW][reduced_row_idx];
+                    const bool line_changed = update_line(reduced_row, nb_alt);
+                    if (line_changed)
+                    {
+                        m_line_is_fully_reduced[Line::ROW][reduced_row_idx] = false;
+                    }
+                }
                 partition_completed_lines();
 
                 result.m_grid_has_changed = true;
