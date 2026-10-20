@@ -975,113 +975,124 @@ LineAlternatives::Reduction LineAlternatives::Impl::reduce_all_alternatives_dp(F
     const int k = static_cast<int>(std::distance(range.m_constraint_begin, range.m_constraint_end));
     const int n = range.m_line_end - range.m_line_begin + 1;
 
-    const auto index = [k](int i, int j) -> std::size_t { 
-        return static_cast<std::size_t>(i) * static_cast<std::size_t>(k + 1) + static_cast<std::size_t>(j); 
-    };
-
-    constexpr char STEP_FIX0 = 1;
-    constexpr char STEP_FIX1 = 1 << 1;
-    constexpr char STEP_PAINT = 1 << 2;
-
     std::vector<Tile> local_tiles;
     std::vector<NbAlt> local_fix;
-    std::vector<char> local_step;
-    std::vector<int> local_zeros;
+    std::vector<char> local_reached;
+    std::vector<int> local_runs;
+    std::vector<int> local_seg_start;
     std::vector<int> local_lowest_one;
     std::vector<char> local_can_be_empty;
     auto& tiles_buffer = buffers ? buffers->m_dp_tiles : local_tiles;
     auto& fix_buffer = buffers ? buffers->m_dp_fix : local_fix;
-    auto& step_buffer = buffers ? buffers->m_dp_step : local_step;
-    auto& zeros_buffer = buffers ? buffers->m_dp_zeros : local_zeros;
+    auto& reached_buffer = buffers ? buffers->m_dp_reached : local_reached;
+    auto& runs_buffer = buffers ? buffers->m_dp_runs : local_runs;
+    auto& seg_start_buffer = buffers ? buffers->m_dp_seg_start : local_seg_start;
     auto& low_one_buffer = buffers ? buffers->m_dp_lowest_one : local_lowest_one;
     auto& pixel_fix_zero_buffer = buffers ? buffers->m_dp_can_be_empty : local_can_be_empty;
 
-    const auto states = static_cast<std::size_t>(n + 1) * static_cast<std::size_t>(k + 1);
+    seg_start_buffer.resize(static_cast<std::size_t>(k + 1));
+    int* const seg_start = seg_start_buffer.data();
+    seg_start[0] = 0;
+    for (int j = 1; j <= k; j++) {
+        seg_start[j] = seg_start[j - 1] + get_dp_segment(j) + 1;
+    }
+
+    Line reduced_line_raw = line_from_line_span(m_known_tiles);
+    const int slack = n - seg_start[k];
+    if (slack < 0) {
+        return Reduction { std::move(reduced_line_raw), NbAlt{0}, true };
+    }
+    const int w = slack + 1;
+
     tiles_buffer.resize(static_cast<std::size_t>(n));
-    fix_buffer.resize(states);
-    step_buffer.resize(states);
-    zeros_buffer.resize(static_cast<std::size_t>(n + 1));
+    runs_buffer.resize(static_cast<std::size_t>(n + 1));
+    fix_buffer.resize(static_cast<std::size_t>(k + 1) * static_cast<std::size_t>(w));
     Tile* const tiles = tiles_buffer.data();
+    int* const runs = runs_buffer.data();
     NbAlt* const fix = fix_buffer.data();
-    char* const step = step_buffer.data();
-    int* const zeros = zeros_buffer.data();
 
     tiles[0] = Tile::EMPTY;
     for (int t = 1; t < n; t++) {
         tiles[t] = m_known_tiles[range.m_line_begin + t - 1];
     }
 
-    zeros[0] = 0;
+    runs[0] = 0;
     for (int i = 1; i <= n; i++) {
-        zeros[i] = zeros[i - 1] + (tiles[i - 1] == Tile::EMPTY ? 1 : 0);
+        runs[i] = tiles[i - 1] == Tile::EMPTY ? 0 : runs[i - 1] + 1;
     }
 
-    const auto fix0 = [&](int i, int j) -> NbAlt {
-        return tiles[i - 1] != Tile::FILLED ? fix[index(i - 1, j)] : NbAlt{0};
+    const auto can_fix0 = [&](int i) -> bool {
+        return tiles[i - 1] != Tile::FILLED;
+    };
+    const auto can_fix1 = [&](int i, int d) -> bool {
+        return runs[i] >= d && tiles[i - d - 1] != Tile::FILLED;
     };
 
-    const auto fix1 = [&](int i, int j) -> NbAlt {
-        if (j < 1) {
-            return NbAlt{0};
-        }
-
-        const int d_j = get_dp_segment(j);
-        return (i >= d_j + 1 && tiles[i - d_j - 1] != Tile::FILLED && zeros[i - d_j] == zeros[i]) ? fix[index(i - d_j - 1, j - 1)] : NbAlt{0};
-    };
-
-    for (int j = 0; j <= k; j++) {
-        fix[index(0, j)] = (j == 0) ? NbAlt{1} : NbAlt{0};
-        step[index(0, j)] = 0;
+    fix[0] = NbAlt{1};
+    NbAlt prev = fix[0];
+    for (int o = 1; o < w; o++) {
+        prev = can_fix0(o) ? prev : NbAlt{0};
+        fix[o] = prev;
     }
 
-    for (int i = 1; i <= n; i++) {
-        for (int j = 0; j <= k; j++) {
-            NbAlt a = fix0(i, j);
-            NbAlt b = fix1(i, j);
+    for (int j = 1; j <= k; j++) {
+        const int d = get_dp_segment(j);
+        const int base = seg_start[j];
+        NbAlt* const prev_row = fix + static_cast<std::size_t>(j - 1) * static_cast<std::size_t>(w);
+        NbAlt* const row = fix + static_cast<std::size_t>(j) * static_cast<std::size_t>(w);
+        
+        NbAlt prev = NbAlt{0};
+        for (int o = 0; o < w; o++) {
+            const int i = base + o;
+            
+            NbAlt cur = can_fix0(i) ? prev : NbAlt{0};
+            if (can_fix1(i, d)) {
+                binomial::add(cur, prev_row[o]);
+            }
 
-            step[index(i, j)] = static_cast<char>((a > 0 ? STEP_FIX0 : 0) | (b > 0 ? STEP_FIX1 : 0));
-            fix[index(i, j)] = binomial::add(a, b);
+            row[o] = cur;
+            prev = cur;
         }
     }
 
-    Line reduced_line_raw = line_from_line_span(m_known_tiles);
-    const NbAlt alternatives = fix[index(n, k)];
+    const NbAlt alternatives = fix[static_cast<std::size_t>(k) * static_cast<std::size_t>(w) + static_cast<std::size_t>(slack)];
     if (alternatives == 0) {
         return Reduction { std::move(reduced_line_raw), NbAlt{0}, true };
     }
 
+    reached_buffer.assign(fix_buffer.size(), 0);
     low_one_buffer.assign(static_cast<std::size_t>(n + 1), n + 1);
     pixel_fix_zero_buffer.assign(static_cast<std::size_t>(n + 1), 0);
+    char* const reached = reached_buffer.data();
     int* const low_one = low_one_buffer.data();
     char* const pixel_fix_zero = pixel_fix_zero_buffer.data();
 
-    const auto paint = [&](const auto& self, int i, int j) -> void {
-        const char state_step = step[index(i, j)];
+    reached[static_cast<std::size_t>(k) * static_cast<std::size_t>(w) + static_cast<std::size_t>(slack)] = 1;
+    for (int j = k; j >= 0; j--) {
+        const int d = j > 0 ? get_dp_segment(j) : 0;
+        const int base = seg_start[j];
+        NbAlt* const row = fix + static_cast<std::size_t>(j) * static_cast<std::size_t>(w);
+        char* const reached_row = reached + static_cast<std::size_t>(j) * static_cast<std::size_t>(w);
 
-        if (state_step & STEP_PAINT) {
-            return;
+        for (int o = slack; o >= 0; o--) {
+            if (!reached_row[o]) {
+                continue;
+            }
+            
+            const int i = base + o;
+            
+            if (o > 0 && can_fix0(i) && row[o - 1] > 0) {
+                pixel_fix_zero[i] = 1;
+                reached_row[o - 1] = 1;
+            }
+
+            if (j > 0 && can_fix1(i, d) && row[o - w] > 0) {
+                pixel_fix_zero[i - d] = 1;
+                low_one[i] = std::min(low_one[i], i - d + 1);
+                reached_row[o - w] = 1;
+            }
         }
-
-        step[index(i, j)] = static_cast<char>(state_step | STEP_PAINT);
-        
-        if (i == 0) {
-            return;
-        }
-
-        if (state_step & STEP_FIX0) {
-            pixel_fix_zero[i] = 1;
-            self(self, i - 1, j);
-        }
-
-        if (state_step & STEP_FIX1) {
-            const int d_j = get_dp_segment(j);
-            pixel_fix_zero[i - d_j] = 1;
-            low_one[i] = std::min(low_one[i], i - d_j + 1);
-            self(self, i - d_j - 1, j - 1);
-        }
-    };
-
-    paint(paint, n, k);
+    }
 
     LineSpanW reduced_line(reduced_line_raw);
     int lowest = n + 1;

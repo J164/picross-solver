@@ -94,8 +94,9 @@ struct FullReductionBuffers
 
     std::vector<Tile>                       m_dp_tiles;
     std::vector<LineAlternatives::NbAlt>    m_dp_fix;
-    std::vector<char>                       m_dp_step;
-    std::vector<int>                        m_dp_zeros;
+    std::vector<char>                       m_dp_reached;
+    std::vector<int>                        m_dp_runs;
+    std::vector<int>                        m_dp_seg_start;
     std::vector<int>                        m_dp_lowest_one;
     std::vector<char>                       m_dp_can_be_empty;
 };
