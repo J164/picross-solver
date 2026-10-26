@@ -1005,8 +1005,13 @@ typename WorkGrid<SolverPolicy>::ProbingResult WorkGrid<SolverPolicy>::probe_fp1
 
     auto& probing_work_grid = nested_work_grid();
 
-    for (Line::Index row_idx = 0; row_idx < height(); row_idx++)
+    for (auto it = m_all_lines.begin(); it != m_uncompleted_lines_end; it++)
     {
+        if (it->m_type != Line::ROW)
+        {
+            continue;
+        }
+        const Line::Index row_idx = it->m_index;
         const LineSpan row_span = get_line(Line::ROW, row_idx);
 
         for (Line::Index col_idx = 0; col_idx < width(); col_idx++)
