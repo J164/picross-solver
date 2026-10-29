@@ -440,7 +440,7 @@ Solver::Status WorkGrid<SolverPolicy>::solve(const Solver::SolutionFound& soluti
             }
 
             // Make a guess (branch search)
-            status = branch(solution_found);
+            status = m_flags.enable_pixel_branching ? branch_pixel(solution_found) : branch(solution_found);
         }
         else
         {
@@ -1533,6 +1533,124 @@ Solver::Status WorkGrid<SolverPolicy>::branch(const Solver::SolutionFound& solut
     return flag_solution_found ? Solver::Status::OK : Solver::Status::CONTRADICTORY_GRID;
 }
 
+template <typename SolverPolicy>
+Solver::Status WorkGrid<SolverPolicy>::branch_pixel(const Solver::SolutionFound& solution_found)
+{
+    assert(m_solver_policy.m_branching_allowed);
+    assert(m_all_lines.begin() != m_uncompleted_lines_end);
+
+    Line::Index target_row_idx = 0;
+    Line::Index target_col_idx = 0;
+    bool found = false;
+    for (auto it = m_all_lines.begin(); it != m_uncompleted_lines_end && !found; it++)
+    {
+        if (it->m_type != Line::ROW)
+        {
+            continue;
+        }
+        const Line::Index row_idx = it->m_index;
+        const LineSpan row_span = get_line(Line::ROW, row_idx);
+
+        for (Line::Index col_idx = 0; col_idx < width(); col_idx++)
+        {
+            if (row_span[static_cast<int>(col_idx)] == Tile::UNKNOWN)
+            {
+                target_row_idx = row_idx;
+                target_col_idx = col_idx;
+                found = true;
+                break;
+            }
+        }
+    }
+    assert(found);
+    const LineSpan known_tiles = get_line(Line::ROW, target_row_idx);
+    constexpr unsigned int nb_alt = 2;
+
+    if (m_observer)
+    {
+        ObserverData data;
+        data.m_depth = m_branching_depth;
+        data.m_misc_i = nb_alt;
+        const auto line_known_tiles = line_from_line_span(known_tiles);
+        m_observer(ObserverEvent::BRANCHING, &line_known_tiles, data);
+    }
+
+    if (m_grid_stats != nullptr)
+    {
+        m_grid_stats->nb_branching_calls++;
+        m_grid_stats->total_nb_branching_alternatives += nb_alt;
+        if (m_grid_stats->max_nb_alternatives_by_branching_depth.size() < m_branching_depth + 1)
+            m_grid_stats->max_nb_alternatives_by_branching_depth.resize(m_branching_depth + 1, 0u);
+        auto& max_nb_alt = m_grid_stats->max_nb_alternatives_by_branching_depth[m_branching_depth];
+        max_nb_alt = std::max(max_nb_alt, nb_alt);
+    }
+
+    auto nested_solver_policy = m_solver_policy;
+
+    Solver::Status status = Solver::Status::OK;
+    bool flag_solution_found = false;
+    LineAlternatives::NbAlt progress = 0u;
+    auto& branching_work_grid = nested_work_grid();
+    for (Tile guess_tile : { Tile::FILLED, Tile::EMPTY })
+    {
+        // Copy current grid state to a nested grid
+        const auto nested_progress = nested_progress_bar(m_progress_bar, progress, nb_alt);
+        std::unique_ptr<GridStats> nested_stats = m_grid_stats ? std::make_unique<GridStats>() : nullptr;
+        branching_work_grid = *this;
+        branching_work_grid.configure(nested_solver_policy, WorkGridState::LINEAR_REDUCTION, nested_stats.get(), nested_progress.first, nested_progress.second);
+        if (m_observer)
+        {
+            ObserverData data;
+            data.m_depth = branching_work_grid.m_branching_depth;
+            m_observer(ObserverEvent::BRANCHING, nullptr, data);
+        }
+
+        // Set one pixel in the new_grid according to the hypothesis we made. That pixel is then complete
+        Line guess_line = line_from_line_span(branching_work_grid.get_line(Line::ROW, target_row_idx));
+        guess_line[static_cast<unsigned int>(target_col_idx)] = guess_tile;
+        branching_work_grid.update_line(guess_line, branching_work_grid.m_nb_alternatives[Line::ROW][target_row_idx]);
+        branching_work_grid.m_line_is_fully_reduced[Line::ROW][target_row_idx] = false;
+        branching_work_grid.partition_completed_lines();
+
+        // Solve the new grid!
+        status = branching_work_grid.solve(solution_found);
+
+        if (m_grid_stats)
+        {
+            assert(nested_stats);
+            merge_branching_grid_stats(*m_grid_stats, *nested_stats);
+        }
+
+        flag_solution_found |= (status == Solver::Status::OK);
+
+        // Progress bar
+        progress++;
+        if (m_observer)
+        {
+            ObserverData data;
+            data.m_depth = branching_work_grid.m_branching_depth;
+            data.m_misc_f = progress_bar(m_progress_bar, progress, nb_alt);
+            m_observer(ObserverEvent::PROGRESS, nullptr, data);
+        }
+
+        if (status == Solver::Status::ABORTED)
+        {
+            return status;
+        }
+    }
+
+    // Repeat start branching message
+    if (m_observer)
+    {
+        ObserverData data;
+        data.m_depth = m_branching_depth;
+        data.m_misc_i = nb_alt;
+        const auto line_known_tiles = line_from_line_span(known_tiles);
+        m_observer(ObserverEvent::BRANCHING, &line_known_tiles, data);
+    }
+
+    return flag_solution_found ? Solver::Status::OK : Solver::Status::CONTRADICTORY_GRID;
+}
 
 template <typename SolverPolicy>
 bool WorkGrid<SolverPolicy>::is_valid_solution() const

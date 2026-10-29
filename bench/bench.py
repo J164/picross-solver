@@ -136,7 +136,7 @@ def run_benchmark(run_fn, binary: Path, puzzles: list, trials: int, timeout: flo
 
     return report
 
-SOLVER_FLAGS = ("fp1", "fp2", "dp_line_solver")
+SOLVER_FLAGS = ("dp_line_solver", "fp1", "fp2", "pixel_branching")
 
 def solver_flags(enabled: dict[str, bool]) -> list[str]:
     return [f"--{name.replace('_', '-')}" for name in SOLVER_FLAGS if enabled.get(name)]
@@ -180,10 +180,11 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--num-puzzles", type=int, default=10, help="number of puzzles randomly selected to solve (default: 10)")
     parser.add_argument("--seed", type=int, default=None, help="seed for --num-puzzles (default: None)")
     parser.add_argument("--source", type=str, default=None, choices=list(SOURCES), help="source to select puzzles from (default: all)")
-    parser.add_argument("--config", type=str, default=None, help="path to JSON config file: {\"seed\":, \"trials\":, \"timeout\":, \"fp1\":, \"dp_line_solver\":, \"max_search_nodes\":,\n\"sources\": {name: count,}, \"include\": [sha,]}")
+    parser.add_argument("--config", type=str, default=None, help="path to JSON config file: {\"seed\":, \"trials\":, \"timeout\":, \"dp_line_solver\":, \"fp1\":, \"fp2\":, \"pixel_branching\":, \"max_search_nodes\":,\n\"sources\": {name: count,}, \"include\": [sha,]}")
+    parser.add_argument("--dp-line-solver", action="store_true", help="enable the DP line solver")
     parser.add_argument("--fp1", action="store_true", help="enable the FP1 probing optimization")
     parser.add_argument("--fp2", action="store_true", help="enable the FP2 probing optimization")
-    parser.add_argument("--dp-line-solver", action="store_true", help="enable the DP line solver")
+    parser.add_argument("--pixel-branching", action="store_true", help="enable pixel branching")
     parser.add_argument("--max-search-nodes", type=int, default=None, help="maximum number of search nodes the solver can try")
     parser.add_argument("--binary", type=str, default=None, help="solver binary to run (default: build/bin)")
 

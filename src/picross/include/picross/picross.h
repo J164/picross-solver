@@ -126,6 +126,7 @@ struct SolverFlags {
     bool enable_dp_line_solver = false;
     bool enable_fp1 = false;
     bool enable_fp2 = false;
+    bool enable_pixel_branching = false;
 };
 
 

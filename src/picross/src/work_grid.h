@@ -105,6 +105,7 @@ private:
     ProbingResult probe_fp1();
     ProbingResult probe_fp2();
     Solver::Status branch(const Solver::SolutionFound& solution_found);
+    Solver::Status branch_pixel(const Solver::SolutionFound& solution_found);
     bool is_valid_solution() const;
     bool found_solution(const Solver::SolutionFound& solution_found) const;
     void fill_cache_with_orthogonal_lines(LineId line_id);
