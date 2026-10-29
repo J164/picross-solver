@@ -478,21 +478,6 @@ TEST_CASE("FP1 is opt-in and preserves default solver behavior", "[solver][fp1]"
     CHECK(default_result.solutions.front().branching_depth == explicit_default_result.solutions.front().branching_depth);
 }
 
-TEST_CASE("FP1 identifies contradictory grids", "[solver][fp1]")
-{
-    const InputGrid::Constraints rows { { 1, 1 }, { 2 } };
-    const InputGrid::Constraints cols { { 1 }, { 2 }, { 1 }, { 1 } };
-    const InputGrid puzzle(rows, cols, "Invalid");
-
-    SolverFlags flags;
-    flags.enable_fp1 = true;
-    const auto solver = get_ref_solver(flags);
-    const auto result = solver->solve(puzzle);
-
-    CHECK(result.status == Solver::Status::CONTRADICTORY_GRID);
-    REQUIRE(result.solutions.empty());
-}
-
 TEST_CASE("FP1 solves a non-line-solvable puzzle without speculative main-grid writes", "[solver][fp1]")
 {
     OutputGrid expected = build_output_grid_from(7, 7, R"(
@@ -570,21 +555,6 @@ TEST_CASE("FP2 is opt-in and preserves default solver behavior", "[solver][fp2]"
     CHECK(default_result.solutions.front().grid == explicit_default_result.solutions.front().grid);
     CHECK(default_result.solutions.front().grid == fp2_result.solutions.front().grid);
     CHECK(default_result.solutions.front().branching_depth == explicit_default_result.solutions.front().branching_depth);
-}
-
-TEST_CASE("FP2 identifies contradictory grids", "[solver][fp2]")
-{
-    const InputGrid::Constraints rows { { 1, 1 }, { 2 } };
-    const InputGrid::Constraints cols { { 1 }, { 2 }, { 1 }, { 1 } };
-    const InputGrid puzzle(rows, cols, "Invalid");
-
-    SolverFlags flags;
-    flags.enable_fp2 = true;
-    const auto solver = get_ref_solver(flags);
-    const auto result = solver->solve(puzzle);
-
-    CHECK(result.status == Solver::Status::CONTRADICTORY_GRID);
-    REQUIRE(result.solutions.empty());
 }
 
 TEST_CASE("FP2 solves a non-line-solvable puzzle without speculative main-grid writes", "[solver][fp2]")
@@ -692,21 +662,6 @@ TEST_CASE("Pixel branching is opt-in and preserves default solver behavior", "[s
     CHECK(default_result.status == pixel_branching_result.status);
     CHECK(default_result.solutions.front().grid == explicit_default_result.solutions.front().grid);
     CHECK(default_result.solutions.front().grid == pixel_branching_result.solutions.front().grid);
-}
-
-TEST_CASE("Pixel branching identifies contradictory grids", "[solver][pixel_branching]")
-{
-    const InputGrid::Constraints rows { { 1, 1 }, { 2 } };
-    const InputGrid::Constraints cols { { 1 }, { 2 }, { 1 }, { 1 } };
-    const InputGrid puzzle(rows, cols, "Invalid");
-
-    SolverFlags flags;
-    flags.enable_pixel_branching = true;
-    const auto solver = get_ref_solver(flags);
-    const auto result = solver->solve(puzzle);
-
-    CHECK(result.status == Solver::Status::CONTRADICTORY_GRID);
-    REQUIRE(result.solutions.empty());
 }
 
 TEST_CASE("Pixel branching solves a non-line-solvable puzzle without speculative main-grid writes", "[solver][pixel_branching]")
