@@ -478,7 +478,22 @@ TEST_CASE("FP1 is opt-in and preserves default solver behavior", "[solver][fp1]"
     CHECK(default_result.solutions.front().branching_depth == explicit_default_result.solutions.front().branching_depth);
 }
 
-TEST_CASE("FP1 solves a probing puzzle without speculative main-grid writes", "[solver][fp1]")
+TEST_CASE("FP1 identifies contradictory grids", "[solver][fp1]")
+{
+    const InputGrid::Constraints rows { { 1, 1 }, { 2 } };
+    const InputGrid::Constraints cols { { 1 }, { 2 }, { 1 }, { 1 } };
+    const InputGrid puzzle(rows, cols, "Invalid");
+
+    SolverFlags flags;
+    flags.enable_fp1 = true;
+    const auto solver = get_ref_solver(flags);
+    const auto result = solver->solve(puzzle);
+
+    CHECK(result.status == Solver::Status::CONTRADICTORY_GRID);
+    REQUIRE(result.solutions.empty());
+}
+
+TEST_CASE("FP1 solves a non-line-solvable puzzle without speculative main-grid writes", "[solver][fp1]")
 {
     OutputGrid expected = build_output_grid_from(7, 7, R"(
         ....###
@@ -557,7 +572,22 @@ TEST_CASE("FP2 is opt-in and preserves default solver behavior", "[solver][fp2]"
     CHECK(default_result.solutions.front().branching_depth == explicit_default_result.solutions.front().branching_depth);
 }
 
-TEST_CASE("FP2 solves a probing puzzle without speculative main-grid writes", "[solver][fp2]")
+TEST_CASE("FP2 identifies contradictory grids", "[solver][fp2]")
+{
+    const InputGrid::Constraints rows { { 1, 1 }, { 2 } };
+    const InputGrid::Constraints cols { { 1 }, { 2 }, { 1 }, { 1 } };
+    const InputGrid puzzle(rows, cols, "Invalid");
+
+    SolverFlags flags;
+    flags.enable_fp2 = true;
+    const auto solver = get_ref_solver(flags);
+    const auto result = solver->solve(puzzle);
+
+    CHECK(result.status == Solver::Status::CONTRADICTORY_GRID);
+    REQUIRE(result.solutions.empty());
+}
+
+TEST_CASE("FP2 solves a non-line-solvable puzzle without speculative main-grid writes", "[solver][fp2]")
 {
     OutputGrid expected = build_output_grid_from(7, 7, R"(
         ....###
@@ -623,6 +653,99 @@ TEST_CASE("FP2 state does not leak between solve calls", "[solver][fp2]")
     const InputGrid puzzle = get_input_grid_from(expected);
     SolverFlags flags;
     flags.enable_fp2 = true;
+    const auto solver = get_ref_solver(flags);
+
+    const auto first_result = solver->solve(puzzle);
+    const auto second_result = solver->solve(puzzle);
+
+    CHECK(first_result.status == Solver::Status::OK);
+    CHECK(second_result.status == Solver::Status::OK);
+    REQUIRE(first_result.solutions.size() == 1);
+    REQUIRE(second_result.solutions.size() == 1);
+    CHECK(first_result.solutions.front().grid == expected);
+    CHECK(second_result.solutions.front().grid == expected);
+    CHECK(first_result.solutions.front().grid == second_result.solutions.front().grid);
+}
+
+TEST_CASE("Pixel branching is opt-in and preserves default solver behavior", "[solver][pixel_branching]")
+{
+    SolverFlags default_flags;
+    CHECK_FALSE(default_flags.enable_pixel_branching);
+    SolverFlags pixel_branching_flags;
+    pixel_branching_flags.enable_pixel_branching = true;
+
+    const InputGrid::Constraints rows { { 1, 1 }, { 2 } };
+    const InputGrid::Constraints cols { { 1 }, { 1 }, { 1 }, { 1 } };
+    const InputGrid puzzle(rows, cols, "Smile");
+
+    const auto default_solver = get_ref_solver();
+    const auto explicit_default_solver = get_ref_solver(default_flags);
+    const auto pixel_branching_solver = get_ref_solver(pixel_branching_flags);
+    const auto default_result = default_solver->solve(puzzle);
+    const auto explicit_default_result = explicit_default_solver->solve(puzzle);
+    const auto pixel_branching_result = pixel_branching_solver->solve(puzzle);
+
+    REQUIRE(default_result.solutions.size() == 1);
+    REQUIRE(explicit_default_result.solutions.size() == 1);
+    REQUIRE(pixel_branching_result.solutions.size() == 1);
+    CHECK(default_result.status == explicit_default_result.status);
+    CHECK(default_result.status == pixel_branching_result.status);
+    CHECK(default_result.solutions.front().grid == explicit_default_result.solutions.front().grid);
+    CHECK(default_result.solutions.front().grid == pixel_branching_result.solutions.front().grid);
+}
+
+TEST_CASE("Pixel branching identifies contradictory grids", "[solver][pixel_branching]")
+{
+    const InputGrid::Constraints rows { { 1, 1 }, { 2 } };
+    const InputGrid::Constraints cols { { 1 }, { 2 }, { 1 }, { 1 } };
+    const InputGrid puzzle(rows, cols, "Invalid");
+
+    SolverFlags flags;
+    flags.enable_pixel_branching = true;
+    const auto solver = get_ref_solver(flags);
+    const auto result = solver->solve(puzzle);
+
+    CHECK(result.status == Solver::Status::CONTRADICTORY_GRID);
+    REQUIRE(result.solutions.empty());
+}
+
+TEST_CASE("Pixel branching solves a non-line-solvable puzzle without speculative main-grid writes", "[solver][pixel_branching]")
+{
+    OutputGrid expected = build_output_grid_from(7, 7, R"(
+        ....###
+        ......#
+        ..###.#
+        ....#..
+        ###.#..
+        ..#....
+        ..#....
+    )", "3-DOM");
+    const InputGrid puzzle = get_input_grid_from(expected);
+    SolverFlags flags;
+    flags.enable_pixel_branching = true;
+    const auto solver = get_ref_solver(flags);
+    const auto result = solver->solve(puzzle);
+
+    CHECK(result.status == Solver::Status::OK);
+    REQUIRE(result.solutions.size() == 1);
+    CHECK(result.solutions.front().grid == expected);
+    CHECK(is_solution(puzzle, result.solutions.front().grid));
+}
+
+TEST_CASE("Pixel branching state does not leak between solve calls", "[solver][pixel_branching]")
+{
+    OutputGrid expected = build_output_grid_from(7, 7, R"(
+        ....###
+        ......#
+        ..###.#
+        ....#..
+        ###.#..
+        ..#....
+        ..#....
+    )", "3-DOM");
+    const InputGrid puzzle = get_input_grid_from(expected);
+    SolverFlags flags;
+    flags.enable_pixel_branching = true;
     const auto solver = get_ref_solver(flags);
 
     const auto first_result = solver->solve(puzzle);
