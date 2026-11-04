@@ -188,7 +188,9 @@ int main(int argc, char *argv[])
         "Enable the FP2 optimization", 0 },
       {
         "pixel-branching", { "--pixel-branching" },
-        "Enable the Pixel Branching optimization", 0 }
+        "Enable the Pixel Branching optimization", 0 },
+      {"incremental-propagation", { "--incremental-propagation" },
+        "Propagate with the full reduction only, and keep the FP1 probing grids between probing rounds", 0 }
     } };
 
     std::ostringstream usage_note;
@@ -278,6 +280,7 @@ int main(int argc, char *argv[])
     flags.enable_fp1 = args["fp1"];
     flags.enable_fp2 = args["fp2"];
     flags.enable_pixel_branching = args["pixel-branching"];
+    flags.incremental_propagation = args["incremental-propagation"];
 
     /* Solver */
     const auto solver = args["line-solver"] ? picross::get_line_solver() : picross::get_ref_solver(flags);

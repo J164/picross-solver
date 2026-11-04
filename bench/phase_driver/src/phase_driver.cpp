@@ -79,6 +79,8 @@ int main(int argc, char** argv)
             flags.enable_fp1 = true;
         } else if (arg == "--dp-line-solver") {
             flags.enable_dp_line_solver = true;
+        } else if (arg == "--incremental-propagation") {
+            flags.incremental_propagation = true;
         } else if (arg == "--max-search-nodes" && i + 1 < argc) {
             max_search_nodes = std::stoull(argv[i + 1]);
             i++;

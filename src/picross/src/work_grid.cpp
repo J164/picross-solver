@@ -148,6 +148,7 @@ WorkGrid<SolverPolicy>::WorkGrid(const InputGrid& grid, const SolverPolicy& solv
     , m_uncompleted_lines_range()
     , m_all_lines()
     , m_uncompleted_lines_end(m_all_lines.end())
+    , m_nb_uncompleted_lines(0u)
     , m_grid_stats(nullptr)
     , m_observer(std::move(observer))
     , m_abort_function(std::move(abort_function))
@@ -178,6 +179,7 @@ WorkGrid<SolverPolicy>::WorkGrid(const InputGrid& grid, const SolverPolicy& solv
         m_all_lines.emplace_back(Line::COL, col_idx);
     }
     m_uncompleted_lines_end = m_all_lines.end();
+    m_nb_uncompleted_lines = static_cast<unsigned int>(m_all_lines.size());
 
     m_constraints[Line::ROW] = build_constraints_from(Line::ROW, grid);
     m_constraints[Line::COL] = build_constraints_from(Line::COL, grid);
@@ -220,6 +222,7 @@ WorkGrid<SolverPolicy>::WorkGrid(const WorkGrid& parent)
     , m_uncompleted_lines_range()
     , m_all_lines()
     , m_uncompleted_lines_end(m_all_lines.end())
+    , m_nb_uncompleted_lines(0u)
     , m_grid_stats(nullptr)
     , m_observer(parent.m_observer)
     , m_abort_function(parent.m_abort_function)
@@ -266,6 +269,7 @@ WorkGrid<SolverPolicy>& WorkGrid<SolverPolicy>::operator=(const WorkGrid& parent
     m_uncompleted_lines_range[Line::COL] = parent.m_uncompleted_lines_range[Line::COL];
     m_all_lines = AllLines(parent.m_all_lines.cbegin(), AllLines::const_iterator(parent.m_uncompleted_lines_end));
     m_uncompleted_lines_end = m_all_lines.end();
+    m_nb_uncompleted_lines = parent.m_nb_uncompleted_lines;
     m_max_nb_alternatives = SolverPolicy::MIN_NB_ALTERNATIVES;
     m_probing_depth_incr = 0u;
     m_flags = parent.m_flags;
@@ -318,6 +322,10 @@ Solver::Status WorkGrid<SolverPolicy>::line_solve(const Solver::SolutionFound& s
 
         while (m_state != WorkGridState::BRANCHING && m_state != WorkGridState::STOP_SOLVER && !grid_completed)
         {
+            if (m_flags.incremental_propagation && m_state == WorkGridState::LINEAR_REDUCTION) {
+                m_state = WorkGridState::FULL_REDUCTION;
+            }
+
             if (m_observer)
             {
                 ObserverData data;
@@ -360,6 +368,12 @@ Solver::Status WorkGrid<SolverPolicy>::line_solve(const Solver::SolutionFound& s
                 {
                     m_state = WorkGridState::STOP_SOLVER;
                 }
+                
+                if (m_flags.incremental_propagation && m_state != WorkGridState::FULL_REDUCTION && m_state != WorkGridState::LINEAR_REDUCTION) {
+                    partition_completed_lines();
+                    sort_by_nb_alternatives();
+                }
+
                 break;
 
             case WorkGridState::PROBING:
@@ -459,7 +473,7 @@ Solver::Status WorkGrid<SolverPolicy>::solve(const Solver::SolutionFound& soluti
 template <typename SolverPolicy>
 bool WorkGrid<SolverPolicy>::all_lines_completed() const
 {
-    const bool all_completed = (m_all_lines.begin() == m_uncompleted_lines_end);
+    const bool all_completed = (m_nb_uncompleted_lines == 0u);
     assert(all_completed == [this]() -> bool {
         const bool all_rows = std::all_of(std::cbegin(m_line_completed[Line::ROW]), std::cend(m_line_completed[Line::ROW]), [](bool b) { return b; });
         const bool all_cols = std::all_of(std::cbegin(m_line_completed[Line::COL]), std::cend(m_line_completed[Line::COL]), [](bool b) { return b; });
@@ -511,6 +525,10 @@ bool WorkGrid<SolverPolicy>::update_line(const LineSpan& line, unsigned int nb_a
             if (tile_changed)
                 set_tile_func(Line::ROW, tile_idx);
         }
+    }
+
+    if (line_is_complete && !m_line_completed[line_type][line_index]) {
+        m_nb_uncompleted_lines--;
     }
 
     m_nb_alternatives[line_type][line_index] = nb_alt = line_is_complete ? 1u : nb_alt;
@@ -800,8 +818,11 @@ typename WorkGrid<SolverPolicy>::PassStatus WorkGrid<SolverPolicy>::full_grid_pa
         for (auto it = m_all_lines.begin(); it != m_uncompleted_lines_end; ++it)
             m_line_has_updates[it->m_type][it->m_index] = true;
     }
-    partition_completed_lines();
-    sort_by_nb_alternatives();
+    if (!m_flags.incremental_propagation) {
+        partition_completed_lines();
+        sort_by_nb_alternatives();
+    }
+
     return status;
 }
 

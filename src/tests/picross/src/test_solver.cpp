@@ -715,4 +715,10 @@ TEST_CASE("Pixel branching state does not leak between solve calls", "[solver][p
     CHECK(first_result.solutions.front().grid == second_result.solutions.front().grid);
 }
 
+TEST_CASE("Incremental propagation is opt-in", "[solver][incremental]")
+{
+    const SolverFlags flags;
+    CHECK_FALSE(flags.incremental_propagation);
+}
+
 } // namespace picross

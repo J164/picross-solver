@@ -124,6 +124,7 @@ private:
     LineRange                                       m_uncompleted_lines_range[2];
     AllLines                                        m_all_lines;
     AllLines::iterator                              m_uncompleted_lines_end;
+    unsigned int                                    m_nb_uncompleted_lines;
     GridStats*                                      m_grid_stats;        // If not null, the solver will store some stats in that structure
     Observer                                        m_observer;          // If not empty, the solver will notify the observer of its progress
     Solver::Abort                                   m_abort_function;    // If not empty, the solver will regularly call this function and abort if it returns true
