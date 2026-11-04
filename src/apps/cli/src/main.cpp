@@ -185,7 +185,10 @@ int main(int argc, char *argv[])
         "Enable the FP1 optimization", 0 },
       {
         "fp2", { "--fp2" },
-        "Enable the FP2 optimization", 0 }
+        "Enable the FP2 optimization", 0 },
+      {
+        "pixel-branching", { "--pixel-branching" },
+        "Enable the Pixel Branching optimization", 0 }
     } };
 
     std::ostringstream usage_note;
@@ -274,6 +277,7 @@ int main(int argc, char *argv[])
     flags.enable_dp_line_solver = args["dp-line-solver"];
     flags.enable_fp1 = args["fp1"];
     flags.enable_fp2 = args["fp2"];
+    flags.enable_pixel_branching = args["pixel-branching"];
 
     /* Solver */
     const auto solver = args["line-solver"] ? picross::get_line_solver() : picross::get_ref_solver(flags);
