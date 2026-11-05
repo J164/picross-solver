@@ -77,6 +77,10 @@ int main(int argc, char** argv)
 
         if (arg == "--fp1") {
             flags.enable_fp1 = true;
+        } else if (arg == "--fp2") {
+            flags.enable_fp2 = true;
+        } else if (arg == "--pixel-branching") {
+            flags.enable_pixel_branching = true;
         } else if (arg == "--dp-line-solver") {
             flags.enable_dp_line_solver = true;
         } else if (arg == "--incremental-propagation") {

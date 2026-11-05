@@ -3,6 +3,9 @@
 #include <utils/test_helpers.h>
 #include <utils/text_io.h>
 
+#include <algorithm>
+#include <vector>
+
 
 namespace picross {
 
@@ -713,6 +716,67 @@ TEST_CASE("Pixel branching state does not leak between solve calls", "[solver][p
     CHECK(first_result.solutions.front().grid == expected);
     CHECK(second_result.solutions.front().grid == expected);
     CHECK(first_result.solutions.front().grid == second_result.solutions.front().grid);
+}
+
+namespace {
+    bool same_solution_set(const std::vector<Solver::Solution>& lhs, const std::vector<Solver::Solution>& rhs) {
+        const auto count = [](const std::vector<Solver::Solution>& solutions, const OutputGrid& grid) {
+            return std::count_if(solutions.cbegin(), solutions.cend(), [&grid](const Solver::Solution& s) { return s.grid == grid; });
+        };
+
+        return lhs.size() == rhs.size() && std::all_of(lhs.cbegin(), lhs.cend(), [&](const Solver::Solution& s) { return count(lhs, s.grid) == 1 && count(rhs, s.grid) == 1; });
+    }
+} // namespace
+
+TEST_CASE("FP-guided pixel branching finds all the solutions", "[solver][fp1][fp2][pixel_branching]") {
+    SolverFlags flags;
+    flags.enable_pixel_branching = true;
+    SECTION("FP1") { flags.enable_fp1 = true; }
+    SECTION("FP2") { flags.enable_fp2 = true; }
+    SECTION("FP1 + incremental propagation") { flags.enable_fp1 = true; flags.incremental_propagation = true; }
+    SECTION("FP2 + incremental propagation") { flags.enable_fp2 = true; flags.incremental_propagation = true; }
+
+    const auto reference_solver = get_ref_solver();
+    const auto solver = get_ref_solver(flags);
+
+    const InputGrid::Constraints ones(5, { 1 });
+    const InputGrid permutations(ones, ones, "Permutations");
+    const auto permutations_result = solver->solve(permutations, 0u);
+
+    CHECK(permutations_result.status == Solver::Status::OK);
+    CHECK(permutations_result.solutions.size() == 120);
+    CHECK(same_solution_set(permutations_result.solutions, reference_solver->solve(permutations, 0u).solutions));
+
+    OutputGrid expected = build_output_grid_from(7, 7, R"(
+        ....###
+        ......#
+        ..###.#
+        ....#..
+        ###.#..
+        ..#....
+        ..#....
+    )", "3-DOM");
+    const InputGrid dom3 = get_input_grid_from(expected);
+    const auto dom3_result = solver->solve(dom3, 0u);
+    CHECK(dom3_result.status == Solver::Status::OK);
+    CHECK(same_solution_set(dom3_result.solutions, reference_solver->solve(dom3, 0u).solutions));
+
+    const InputGrid::Constraints rows {
+        { 3 }, { 1 }, { 3, 1 }, { 1 }, { 3, 1 }, { 1 },
+        { 3, 1 }, { 1 }, { 3, 1 }, { 1 }, { 1 }
+    };
+    const InputGrid::Constraints cols {
+        { 1 }, { 1 }, { 1, 3 }, { 1 }, { 1, 3 }, { 1 },
+        { 1, 3 }, { 1 }, { 1, 3 }, { 1 }, { 3 }
+    };
+    const InputGrid dom5(rows, cols, "5-DOM");
+    const auto dom5_result = solver->solve(dom5, 0u);
+
+    CHECK(dom5_result.status == Solver::Status::OK);
+    CHECK(same_solution_set(dom5_result.solutions, reference_solver->solve(dom5, 0u).solutions));
+    for (const auto& solution : dom5_result.solutions) {
+        CHECK(is_solution(dom5, solution.grid));
+    }
 }
 
 TEST_CASE("Incremental propagation is opt-in", "[solver][incremental]")

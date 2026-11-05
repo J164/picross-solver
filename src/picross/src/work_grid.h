@@ -18,6 +18,7 @@
 
 #include <stdutils/macros.h>
 
+#include <array>
 #include <memory>
 #include <ostream>
 #include <vector>
@@ -70,6 +71,26 @@ private:
         bool            m_grid_has_changed  = false;
         bool            m_continue_probing  = false;
     };
+    struct PixelValue
+    {
+        std::size_t     m_pixel;
+        Tile            m_value;
+        bool            m_contrapositive;
+    };
+    
+    struct ProbeTrial {
+        std::unique_ptr<WorkGrid<SolverPolicy>> m_grid;
+        std::vector<PixelValue>                 m_relations;
+        std::size_t                             m_applied_relations = 0u;
+        std::size_t                             m_synced_nb_known = 0u;
+        bool                                    m_conflict = false;
+        bool                                    m_at_fixpoint = false;
+    };
+
+    using ProbeTrialPair = std::array<ProbeTrial, 2>;
+    // Trial grids that are not in use. Allocating a WorkGrid is costly (one LineAlternatives per line), so the
+    // trial grids are recycled. The pool is shared by the grids of all branching depths.
+    using TrialPool = std::vector<std::unique_ptr<WorkGrid<SolverPolicy>>>;
 public:
     WorkGrid(const InputGrid& grid, const SolverPolicy& solver_policy, Observer observer = Observer(), Solver::Abort abort_function = Solver::Abort(), SolverFlags flags = {}, float min_progress = 0.f, float max_progress = 1.f);
     // Not movable
@@ -104,6 +125,17 @@ private:
     ProbingResult probe(LineId line_id);
     ProbingResult probe_fp1();
     ProbingResult probe_fp2();
+    std::size_t nb_known_tiles() const;
+    std::size_t pixel_index(Line::Index x, Line::Index y) const { return static_cast<std::size_t>(y) * width() + x; }
+    Line::Index pixel_x(std::size_t pixel) const { return static_cast<Line::Index>(pixel % width()); }
+    Line::Index pixel_y(std::size_t pixel) const { return static_cast<Line::Index>(pixel / width()); }
+    static std::size_t value_index(Tile value);
+    ProbeTrial& probe_trial(std::size_t pixel, Tile value);
+    Solver::Status propagate_probe_trial(std::size_t pixel, Tile value, std::size_t nb_known);
+    unsigned int apply_probe_deductions(std::size_t pixel, bool empty_consistent, bool filled_consistent);
+    std::unique_ptr<WorkGrid<SolverPolicy>> acquire_trial_grid();
+    void recycle_trial_grid(std::unique_ptr<WorkGrid<SolverPolicy>> trial_grid);
+    void release_probe_trials();
     Solver::Status branch(const Solver::SolutionFound& solution_found);
     Solver::Status branch_pixel(const Solver::SolutionFound& solution_found);
     bool is_valid_solution() const;
@@ -134,9 +166,12 @@ private:
     std::pair<float, float>                         m_progress_bar;
     std::unique_ptr<WorkGrid<SolverPolicy>>         m_nested_work_grid;
     LineCache                                       m_branch_line_cache;
+    std::vector<ProbeTrialPair>                     m_probe_trials;
+    std::shared_ptr<TrialPool>                      m_trial_pool;
     std::shared_ptr<FullReductionBuffers>           m_full_reduction_buffers;
     std::shared_ptr<binomial::Cache>                m_binomial;
     SolverFlags                                     m_flags;
+    bool                                            m_is_probe_trial = false;
 };
 
 } // namespace picross
