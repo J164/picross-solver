@@ -136,6 +136,7 @@ private:
     std::unique_ptr<WorkGrid<SolverPolicy>> acquire_trial_grid();
     void recycle_trial_grid(std::unique_ptr<WorkGrid<SolverPolicy>> trial_grid);
     void release_probe_trials();
+    bool choose_pixel_from_probe_trials(Line::Index& x, Line::Index& y) const;
     Solver::Status branch(const Solver::SolutionFound& solution_found);
     Solver::Status branch_pixel(const Solver::SolutionFound& solution_found);
     bool is_valid_solution() const;

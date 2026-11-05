@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <deque>
 #include <exception>
@@ -1569,16 +1570,62 @@ Solver::Status WorkGrid<SolverPolicy>::branch(const Solver::SolutionFound& solut
 }
 
 template <typename SolverPolicy>
+bool WorkGrid<SolverPolicy>::choose_pixel_from_probe_trials(Line::Index& x, Line::Index& y) const {
+    if (m_probe_trials.empty()) {
+        return false;
+    }
+
+    const auto nb_known = nb_known_tiles();
+    bool found = false;
+    double best_score = -1.0;
+    for (std::size_t pixel = 0u; pixel < m_probe_trials.size(); pixel++) {
+        if (get(pixel_x(pixel), pixel_y(pixel)) != Tile::UNKNOWN) {
+            continue;
+        }
+
+        const ProbeTrialPair& trials = m_probe_trials[pixel];
+        const bool usable = std::all_of(trials.cbegin(), trials.cend(), [nb_known](const ProbeTrial& trial) {
+            return trial.m_grid && !trial.m_conflict && trial.m_at_fixpoint && trial.m_synced_nb_known == nb_known;
+        });
+
+        if (!usable) {
+            continue;
+        }
+
+        const auto m0 = static_cast<double>(trials[0].m_grid->nb_known_tiles() - nb_known);
+        const auto m1 = static_cast<double>(trials[1].m_grid->nb_known_tiles() - nb_known);
+        const double score = std::min(m0, m1) + std::fabs(std::log(m0 + 1.0) - std::log(m1 + 1.0));
+        if (score > best_score) {
+            best_score = score;
+            x = pixel_x(pixel);
+            y = pixel_y(pixel);
+            found = true;
+        }
+    }
+    return found;
+}
+
+template <typename SolverPolicy>
 Solver::Status WorkGrid<SolverPolicy>::branch_pixel(const Solver::SolutionFound& solution_found)
 {
     assert(m_solver_policy.m_branching_allowed);
     assert(m_all_lines.begin() != m_uncompleted_lines_end);
 
-    release_probe_trials();
-
     Line::Index target_row_idx = 0;
     Line::Index target_col_idx = 0;
-    bool found = false;
+
+    bool found = m_flags.incremental_propagation && choose_pixel_from_probe_trials(target_col_idx, target_row_idx);
+
+    std::array<std::unique_ptr<WorkGrid<SolverPolicy>>, 2> trial_grids;
+    if (found) {
+        auto& trials = m_probe_trials[pixel_index(target_col_idx, target_row_idx)];
+        for (std::size_t value_idx = 0u; value_idx < 2u; value_idx++) {
+            trial_grids[value_idx] = std::move(trials[value_idx].m_grid);
+        }
+    }
+
+    release_probe_trials();
+
     for (auto it = m_all_lines.begin(); it != m_uncompleted_lines_end && !found; it++)
     {
         if (it->m_type != Line::ROW)
@@ -1633,7 +1680,15 @@ Solver::Status WorkGrid<SolverPolicy>::branch_pixel(const Solver::SolutionFound&
         // Copy current grid state to a nested grid
         const auto nested_progress = nested_progress_bar(m_progress_bar, progress, nb_alt);
         std::unique_ptr<GridStats> nested_stats = m_grid_stats ? std::make_unique<GridStats>() : nullptr;
-        branching_work_grid = *this;
+
+        auto& trial_grid = trial_grids[value_index(guess_tile)];
+        if (trial_grid) {
+            branching_work_grid = *trial_grid;
+            recycle_trial_grid(std::move(trial_grid));
+        } else {
+            branching_work_grid = *this;
+        }
+
         branching_work_grid.configure(nested_solver_policy, WorkGridState::LINEAR_REDUCTION, nested_stats.get(), nested_progress.first, nested_progress.second);
         if (m_observer)
         {
@@ -1643,10 +1698,12 @@ Solver::Status WorkGrid<SolverPolicy>::branch_pixel(const Solver::SolutionFound&
         }
 
         // Set one pixel in the new_grid according to the hypothesis we made. That pixel is then complete
-        Line guess_line = line_from_line_span(branching_work_grid.get_line(Line::ROW, target_row_idx));
-        guess_line[static_cast<unsigned int>(target_col_idx)] = guess_tile;
-        branching_work_grid.update_line(guess_line, branching_work_grid.m_nb_alternatives[Line::ROW][target_row_idx]);
-        branching_work_grid.m_line_is_fully_reduced[Line::ROW][target_row_idx] = false;
+        if (branching_work_grid.get(target_col_idx, target_row_idx) == Tile::UNKNOWN) {
+            Line guess_line = line_from_line_span(branching_work_grid.get_line(Line::ROW, target_row_idx));
+            guess_line[static_cast<unsigned int>(target_col_idx)] = guess_tile;
+            branching_work_grid.update_line(guess_line, branching_work_grid.m_nb_alternatives[Line::ROW][target_row_idx]);
+            branching_work_grid.m_line_is_fully_reduced[Line::ROW][target_row_idx] = false;
+        }
         branching_work_grid.partition_completed_lines();
 
         // Solve the new grid!
