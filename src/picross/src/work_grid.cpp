@@ -746,7 +746,7 @@ typename WorkGrid<SolverPolicy>::PassStatus WorkGrid<SolverPolicy>::single_line_
 {
     PassStatus status;
 
-    if (m_line_is_fully_reduced[type][index] || (!m_flags.enable_dp_line_solver && m_nb_alternatives[type][index] > m_max_nb_alternatives))
+    if (m_line_is_fully_reduced[type][index] || (!(m_flags.enable_dp_line_solver || m_flags.enable_freedom_line_solver) && m_nb_alternatives[type][index] > m_max_nb_alternatives))
     {
         if (!m_line_is_fully_reduced[type][index])
             status.skipped_lines++;
