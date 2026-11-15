@@ -66,6 +66,7 @@ struct ObserverData
     std::uint32_t   m_depth = 0u;
     std::uint32_t   m_misc_i = 0u;
     float           m_misc_f = 0.f;
+    bool            m_probing = false;
 };
 class Line;
 using Observer = std::function<void(ObserverEvent,const Line*,const ObserverData&)>;

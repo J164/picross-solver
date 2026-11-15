@@ -337,6 +337,7 @@ Solver::Status WorkGrid<SolverPolicy>::line_solve(const Solver::SolutionFound& s
                 ObserverData data;
                 data.m_depth = m_branching_depth;
                 data.m_misc_i = static_cast<std::uint32_t>(m_state);
+                data.m_probing = currently_probing;
                 m_observer(ObserverEvent::INTERNAL_STATE, nullptr, data);
             }
 
