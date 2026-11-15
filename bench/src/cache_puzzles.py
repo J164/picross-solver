@@ -14,6 +14,7 @@ class RawPuzzle(TypedDict):
 class Puzzle(RawPuzzle):
     width: int
     height: int
+    source_group: str
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / "cache"
 RAW_DIR = CACHE_DIR / "raw"
@@ -144,6 +145,11 @@ def read_non_dimensions(path: Path) -> tuple[int, int]:
     
     return int(width.group(1)), int(height.group(1))
 
+def source_group(puzzle: RawPuzzle) -> str:
+    if puzzle["source"] == "tournament":
+        return puzzle["name"].split("#")[0]
+    return puzzle["source"]
+
 def add_dimensions(puzzles: list[RawPuzzle]) -> list[Puzzle]:
     enriched: list[Puzzle] = []
     for puzzle in puzzles:
@@ -151,6 +157,9 @@ def add_dimensions(puzzles: list[RawPuzzle]) -> list[Puzzle]:
         enriched.append({ **puzzle, "width": width, "height": height })
 
     return enriched
+
+def add_derived_fields(puzzles: list) -> list[Puzzle]:
+    return [{ **puzzle, "source_group": source_group(puzzle) } for puzzle in puzzles]
 
 def load_puzzles_index() -> list[Puzzle] | None:
     if not PUZZLE_INDEX.exists():
@@ -166,8 +175,8 @@ def save_puzzles_index(puzzles: list[Puzzle]) -> None:
 def get_puzzles() -> list[Puzzle]:
     cached = load_puzzles_index()
     if cached is not None:
-        return cached
+        return add_derived_fields(cached)
 
     puzzles = add_dimensions(cache_puzzles())
     save_puzzles_index(puzzles)
-    return puzzles
+    return add_derived_fields(puzzles)
