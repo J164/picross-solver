@@ -40,8 +40,14 @@ namespace {
         const LineConstraint constraint(Line::ROW, segments);
         const auto baseline = LineAlternatives(constraint, known_tiles, get_binomial()).full_reduction();
         const auto dp = LineAlternatives(constraint, known_tiles, get_binomial()).full_reduction_dp();
-        
         return dp.nb_alternatives == baseline.nb_alternatives && ((baseline.nb_alternatives == 0 && dp.nb_alternatives == 0) || (baseline.reduced_line == dp.reduced_line && baseline.is_fully_reduced == dp.is_fully_reduced));
+    }
+
+    bool freedom_matches_baseline(const InputGrid::Constraint& segments, const Line& known_tiles) {
+        const LineConstraint constraint(Line::ROW, segments);
+        const auto baseline = LineAlternatives(constraint, known_tiles, get_binomial()).full_reduction();
+        const auto freedom = LineAlternatives(constraint, known_tiles, get_binomial()).full_reduction_freedom();
+        return freedom.nb_alternatives == baseline.nb_alternatives && ((baseline.nb_alternatives == 0 && freedom.nb_alternatives == 0) || (baseline.reduced_line == freedom.reduced_line && baseline.is_fully_reduced == freedom.is_fully_reduced));
     }
 
     void all_constraints(std::size_t size, InputGrid::Constraint& prefix, std::vector<InputGrid::Constraint>& out) {
@@ -727,7 +733,7 @@ TEST_CASE("linear_vs_full_reduction", "[line_alternatives]")
     }
 }
 
-TEST_CASE("full_reduction_dp_matches_baseline_on_all_short_lines", "[line_alternatives]") {
+TEST_CASE("full_reduction_dp_and_freedom_match_baseline_on_all_short_lines", "[line_alternatives][freedom]") {
     static constexpr Tile TILES[] = { Tile::UNKNOWN, Tile::EMPTY, Tile::FILLED };
     for (std::size_t size = 1u; size <= 8u; size++) {
         std::vector<InputGrid::Constraint> constraints;
@@ -750,12 +756,13 @@ TEST_CASE("full_reduction_dp_matches_baseline_on_all_short_lines", "[line_altern
             
             for (const auto& segments : constraints) {
                 CHECK(dp_matches_baseline(segments, known_tiles));
+                CHECK(freedom_matches_baseline(segments, known_tiles));
             }
         }
     }
 }
 
-TEST_CASE("full_reduction_dp_matches_baseline_on_random_lines", "[line_alternatives]")
+TEST_CASE("full_reduction_dp_and_freedom_match_baseline_on_random_lines", "[line_alternatives][freedom]")
 {
     std::mt19937 rng(598u);
     std::uniform_int_distribution<std::size_t> random_size(9u, 60u);
@@ -790,6 +797,72 @@ TEST_CASE("full_reduction_dp_matches_baseline_on_random_lines", "[line_alternati
         }
 
         CHECK(dp_matches_baseline(segments, known_tiles));
+        CHECK(freedom_matches_baseline(segments, known_tiles));
+    }
+}
+
+TEST_CASE("freedom_parameter_prunes_zero_freedom_branches", "[line_alternatives][freedom]")
+{
+    const LineConstraint constraint(Line::ROW, { 1, 2 });
+    const auto known_tiles = build_line_from("?????", Line::ROW, LINE_INDEX);
+    FreedomReductionStats stats;
+    const auto reduction = LineAlternatives(constraint, known_tiles, get_binomial()).full_reduction_freedom(&stats);
+    CHECK(reduction.reduced_line == build_line_from("???#?", Line::ROW, LINE_INDEX));
+    CHECK(reduction.nb_alternatives == 3);
+    CHECK(reduction.is_fully_reduced);
+    CHECK(stats.states_computed == 6);
+    CHECK(stats.zero_freedom_prunes == 2);
+}
+
+TEST_CASE("bitboard_linear_reduction_matches_scalar_around_word_boundaries", "[line_alternatives][bitboard]")
+{
+    static constexpr std::size_t SIZES[] = { 1u, 31u, 32u, 63u, 64u, 65u, 127u, 128u, 129u };
+    std::mt19937 rng(2019u);
+    for (const std::size_t size : SIZES)
+    {
+        for (int trial = 0; trial < 100; ++trial)
+        {
+            Line known_tiles(Line::ROW, LINE_INDEX, size);
+            for (std::size_t i = 0; i < size; ++i)
+            {
+                const unsigned int value = rng() % 5u;
+                known_tiles[i] = value == 0u ? Tile::EMPTY : (value == 1u ? Tile::FILLED : Tile::UNKNOWN);
+            }
+            InputGrid::Constraint segments;
+            std::size_t remaining = size;
+            while (remaining > 0u && segments.size() < 8u && (rng() % 3u) != 0u)
+            {
+                const unsigned int length = 1u + rng() % static_cast<unsigned int>(remaining);
+                segments.push_back(length);
+                if (remaining <= length + 1u)
+                    break;
+                remaining -= length + 1u;
+            }
+            const LineConstraint constraint(Line::ROW, segments);
+            const auto scalar = LineAlternatives(constraint, known_tiles, get_binomial(), false).linear_reduction();
+            const auto bits = LineAlternatives(constraint, known_tiles, get_binomial(), true).linear_reduction();
+            CHECK(bits.nb_alternatives == scalar.nb_alternatives);
+            CHECK(bits.is_fully_reduced == scalar.is_fully_reduced);
+            CHECK(bits.reduced_line == scalar.reduced_line);
+
+            const auto scalar_full = LineAlternatives(constraint, known_tiles, get_binomial(), false).full_reduction();
+            const auto bits_full = LineAlternatives(constraint, known_tiles, get_binomial(), true).full_reduction();
+            CHECK(bits_full.nb_alternatives == scalar_full.nb_alternatives);
+            CHECK(bits_full.is_fully_reduced == scalar_full.is_fully_reduced);
+            CHECK(bits_full.reduced_line == scalar_full.reduced_line);
+
+            const auto scalar_dp = LineAlternatives(constraint, known_tiles, get_binomial(), false).full_reduction_dp();
+            const auto bits_dp = LineAlternatives(constraint, known_tiles, get_binomial(), true).full_reduction_dp();
+            CHECK(bits_dp.nb_alternatives == scalar_dp.nb_alternatives);
+            CHECK(bits_dp.is_fully_reduced == scalar_dp.is_fully_reduced);
+            CHECK(bits_dp.reduced_line == scalar_dp.reduced_line);
+
+            const auto scalar_freedom = LineAlternatives(constraint, known_tiles, get_binomial(), false).full_reduction_freedom();
+            const auto bits_freedom = LineAlternatives(constraint, known_tiles, get_binomial(), true).full_reduction_freedom();
+            CHECK(bits_freedom.nb_alternatives == scalar_freedom.nb_alternatives);
+            CHECK(bits_freedom.is_fully_reduced == scalar_freedom.is_fully_reduced);
+            CHECK(bits_freedom.reduced_line == scalar_freedom.reduced_line);
+        }
     }
 }
 
