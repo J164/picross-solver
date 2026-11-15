@@ -231,6 +231,29 @@ The output, in CSV format, will contain the following information:
 |domino_logic.txt  |8-Dom|17x17|OK|BRANCH|1|1628|
 |domino_logic.txt  |9-Dom|19x19|OK|BRANCH|1|21867.5|
 
+#### CS598 APE Solver Extensions
+
+This fork includes runtime-selectable research extensions developed for CS598 APE:
+
+* `--dp-line-solver`: dynamic-programming line reduction
+* `--fp1` / `--fp2`: probing modes
+* `--incremental-propagation`: preserve FP1 probing grids between propagation rounds
+* `--pixel-branching`: branch on pixels using the freedom-parameter heuristic
+* `--freedom`: Chen-Lin freedom-parameter line reduction
+* `--bitboard`: portable multiword bitboard line operations (not the complete Requiem BMI implementation)
+
+For example:
+
+```
+./build/bin/Release/picross_solver_cli.exe --freedom inputs/example_input.txt
+./build/bin/Release/picross_solver_cli.exe --bitboard inputs/example_input.txt
+./build/bin/Release/picross_solver_cli.exe --freedom --bitboard inputs/example_input.txt
+```
+
+The benchmark driver in `bench/bench.py` accepts the same optimization flags. Run
+`python bench/bench.py --help` and `python bench/bench.py timing --help` for its
+puzzle-selection, trial, timeout, and output options.
+
 ### Make your own Puzzles with the GUI
 
 See tutorial [here](doc/Create_a_Picross.md).

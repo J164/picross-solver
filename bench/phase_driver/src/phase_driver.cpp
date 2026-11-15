@@ -83,6 +83,10 @@ int main(int argc, char** argv)
             flags.enable_pixel_branching = true;
         } else if (arg == "--dp-line-solver") {
             flags.enable_dp_line_solver = true;
+        } else if (arg == "--freedom") {
+            flags.enable_freedom_line_solver = true;
+        } else if (arg == "--bitboard") {
+            flags.enable_bitboard = true;
         } else if (arg == "--incremental-propagation") {
             flags.incremental_propagation = true;
         } else if (arg == "--max-search-nodes" && i + 1 < argc) {

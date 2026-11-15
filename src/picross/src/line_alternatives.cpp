@@ -28,13 +28,20 @@ namespace {
     class TileBitboard
     {
     public:
-        void assign(const LineSpan& line, Tile value)
+        void assign_pair(const LineSpan& line, Tile value, TileBitboard& other, Tile other_value)
         {
             m_size = line.size();
+            other.m_size = m_size;
             m_words.assign((m_size + 63u) / 64u, std::uint64_t{0});
+            other.m_words.assign(m_words.size(), std::uint64_t{0});
             for (std::size_t i = 0; i < m_size; ++i)
+            {
+                const auto mask = std::uint64_t{1} << (i % 64u);
                 if (line[static_cast<int>(i)] == value)
-                    m_words[i / 64u] |= std::uint64_t{1} << (i % 64u);
+                    m_words[i / 64u] |= mask;
+                else if (line[static_cast<int>(i)] == other_value)
+                    other.m_words[i / 64u] |= mask;
+            }
         }
 
         bool test(std::size_t index) const
@@ -660,8 +667,7 @@ bool LineAlternatives::Impl::update()
     copy_line_span(m_known_tiles_extended_copy.line_span(), m_known_tiles);
     if (m_enable_bitboard)
     {
-        m_empty_tiles.assign(m_known_tiles, Tile::EMPTY);
-        m_filled_tiles.assign(m_known_tiles, Tile::FILLED);
+        m_empty_tiles.assign_pair(m_known_tiles, Tile::EMPTY, m_filled_tiles, Tile::FILLED);
     }
 
     auto& range_l = bidirectional_range<false>();
@@ -1251,7 +1257,10 @@ LineAlternatives::Reduction LineAlternatives::Impl::reduce_all_alternatives_free
             }
             else if (state(f - 1u, j).alternatives != 0)
             {
-                paint_zero = state(f - 1u, j);
+                const Painting& previous = state(f - 1u, j);
+                paint_zero.alternatives = previous.alternatives;
+                paint_zero.tiles.reserve(previous.tiles.size() + 1u);
+                paint_zero.tiles.insert(paint_zero.tiles.end(), previous.tiles.begin(), previous.tiles.end());
                 paint_zero.tiles.push_back(Tile::EMPTY);
                 if (!prefix_matches(paint_zero.tiles))
                     paint_zero = Painting{};
@@ -1260,9 +1269,12 @@ LineAlternatives::Reduction LineAlternatives::Impl::reduce_all_alternatives_free
             Painting paint_block;
             if (state(f, j - 1u).alternatives != 0)
             {
-                paint_block = state(f, j - 1u);
-                paint_block.tiles.push_back(Tile::EMPTY);
+                const Painting& previous = state(f, j - 1u);
                 const auto segment = static_cast<std::size_t>(range.m_constraint_begin[static_cast<std::ptrdiff_t>(j - 1u)]);
+                paint_block.alternatives = previous.alternatives;
+                paint_block.tiles.reserve(previous.tiles.size() + segment + 1u);
+                paint_block.tiles.insert(paint_block.tiles.end(), previous.tiles.begin(), previous.tiles.end());
+                paint_block.tiles.push_back(Tile::EMPTY);
                 paint_block.tiles.insert(paint_block.tiles.end(), segment, Tile::FILLED);
                 if (!prefix_matches(paint_block.tiles))
                     paint_block = Painting{};
