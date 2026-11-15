@@ -825,14 +825,14 @@ TEST_CASE("bitboard_linear_reduction_matches_scalar_around_word_boundaries", "[l
             Line known_tiles(Line::ROW, LINE_INDEX, size);
             for (std::size_t i = 0; i < size; ++i)
             {
-                const unsigned int value = rng() % 5u;
+                const auto value = static_cast<unsigned int>(rng() % 5u);
                 known_tiles[i] = value == 0u ? Tile::EMPTY : (value == 1u ? Tile::FILLED : Tile::UNKNOWN);
             }
             InputGrid::Constraint segments;
             std::size_t remaining = size;
             while (remaining > 0u && segments.size() < 8u && (rng() % 3u) != 0u)
             {
-                const unsigned int length = 1u + rng() % static_cast<unsigned int>(remaining);
+                const auto length = static_cast<unsigned int>(1u + rng() % remaining);
                 segments.push_back(length);
                 if (remaining <= length + 1u)
                     break;

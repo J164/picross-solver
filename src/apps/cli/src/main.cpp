@@ -383,8 +383,8 @@ int main(int argc, char *argv[])
                     /* Set timeout */
                     if (timeout_duration > std::chrono::seconds::zero())
                     {
-                        stdutils::chrono::Timeout<std::chrono::seconds> timeout_clock(timeout_duration);
-                        solver->set_abort_function([&timeout_clock]() { return timeout_clock.has_expired(); });
+                        const stdutils::chrono::Timeout<std::chrono::seconds> timeout_clock(timeout_duration);
+                        solver->set_abort_function([timeout_clock]() { return timeout_clock.has_expired(); });
                     }
 
                     std::chrono::duration<float, std::milli> time_ms;
