@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -24,6 +25,49 @@
 
 namespace picross {
 namespace {
+    class TileBitboard
+    {
+    public:
+        void assign(const LineSpan& line, Tile value)
+        {
+            m_size = line.size();
+            m_words.assign((m_size + 63u) / 64u, std::uint64_t{0});
+            for (std::size_t i = 0; i < m_size; ++i)
+                if (line[static_cast<int>(i)] == value)
+                    m_words[i / 64u] |= std::uint64_t{1} << (i % 64u);
+        }
+
+        bool test(std::size_t index) const
+        {
+            assert(index < m_size);
+            return (m_words[index / 64u] & (std::uint64_t{1} << (index % 64u))) != 0;
+        }
+
+        bool any(std::size_t begin, std::size_t end) const
+        {
+            assert(begin <= end && end <= m_size);
+            if (begin == end)
+                return false;
+            const std::size_t first_word = begin / 64u;
+            const std::size_t last_word = (end - 1u) / 64u;
+            const std::uint64_t first_mask = ~std::uint64_t{0} << (begin % 64u);
+            const unsigned int last_bits = static_cast<unsigned int>(end % 64u);
+            const std::uint64_t last_mask = last_bits == 0u ? ~std::uint64_t{0} : ((std::uint64_t{1} << last_bits) - 1u);
+            if (first_word == last_word)
+                return (m_words[first_word] & first_mask & last_mask) != 0;
+            if ((m_words[first_word] & first_mask) != 0)
+                return true;
+            for (std::size_t word = first_word + 1u; word < last_word; ++word)
+                if (m_words[word] != 0)
+                    return true;
+            return (m_words[last_word] & last_mask) != 0;
+        }
+
+    private:
+        std::size_t m_size = 0u;
+        std::vector<std::uint64_t> m_words;
+    };
+
     template <bool Reversed>
     struct IndexTranslation
     {
@@ -422,7 +466,7 @@ namespace {
 
 struct LineAlternatives::Impl
 {
-    Impl(const LineConstraint& constraint, const LineSpan& known_tiles, binomial::Cache& binomial);
+    Impl(const LineConstraint& constraint, const LineSpan& known_tiles, binomial::Cache& binomial, bool enable_bitboard);
     Impl(const Impl& other, const LineSpan& known_tiles);
 
     void reset();
@@ -462,6 +506,7 @@ struct LineAlternatives::Impl
 
     int get_dp_segment(int j) const;
     Reduction reduce_all_alternatives_dp(FullReductionBuffers* buffers = nullptr);
+    Reduction reduce_all_alternatives_freedom(FreedomReductionStats* stats);
 
     const Segments&                     m_segments;
     const LineSpan                      m_known_tiles;
@@ -469,18 +514,22 @@ struct LineAlternatives::Impl
     const LineSpan                      m_known_tiles_ext;
     binomial::Cache&                    m_binomial;
     const unsigned int                  m_line_length;
+    const bool                          m_enable_bitboard;
+    TileBitboard                        m_empty_tiles;
+    TileBitboard                        m_filled_tiles;
     unsigned int                        m_remaining_zeros;
     BidirectionalRange<false>           m_bidirectional_range;
     BidirectionalRange<true>            m_bidirectional_range_reverse;
 };
 
-LineAlternatives::Impl::Impl(const LineConstraint& constraints, const LineSpan& known_tiles, binomial::Cache& binomial)
+LineAlternatives::Impl::Impl(const LineConstraint& constraints, const LineSpan& known_tiles, binomial::Cache& binomial, bool enable_bitboard)
     : m_segments(constraints.segments())
     , m_known_tiles(known_tiles)
     , m_known_tiles_extended_copy(known_tiles)
     , m_known_tiles_ext(m_known_tiles_extended_copy.line_span())
     , m_binomial(binomial)
     , m_line_length(static_cast<unsigned int>(known_tiles.size()))
+    , m_enable_bitboard(enable_bitboard)
     , m_remaining_zeros(m_line_length - constraints.min_line_size())
     , m_bidirectional_range(constraints.segments(), m_line_length)
     , m_bidirectional_range_reverse(constraints.segments(), m_line_length)
@@ -495,6 +544,9 @@ LineAlternatives::Impl::Impl(const Impl& other, const LineSpan& known_tiles)
     , m_known_tiles_ext(m_known_tiles_extended_copy.line_span())
     , m_binomial(other.m_binomial)
     , m_line_length(other.m_line_length)
+    , m_enable_bitboard(other.m_enable_bitboard)
+    , m_empty_tiles(other.m_empty_tiles)
+    , m_filled_tiles(other.m_filled_tiles)
     , m_remaining_zeros(other.m_remaining_zeros)
     , m_bidirectional_range(other.m_bidirectional_range)
     , m_bidirectional_range_reverse(other.m_bidirectional_range_reverse)
@@ -527,6 +579,14 @@ bool LineAlternatives::Impl::check_compatibility_bw(const LineSpanImpl<TileT>& a
 // Returns true if the segment matches the current known tiles
 bool LineAlternatives::Impl::check_compatibility_bw_segment(int segment_begin_index, unsigned int segment_length) const
 {
+    if (m_enable_bitboard)
+    {
+        const std::size_t begin = static_cast<std::size_t>(segment_begin_index);
+        const std::size_t end = begin + segment_length;
+        const bool left_filled = begin > 0u && m_filled_tiles.test(begin - 1u);
+        const bool right_filled = end < m_line_length && m_filled_tiles.test(end);
+        return !left_filled && !right_filled && !m_empty_tiles.any(begin, end);
+    }
     return check_ref_line_compatibility_bw_segment(m_known_tiles_ext, segment_begin_index, segment_length);
 }
 
@@ -598,6 +658,11 @@ bool LineAlternatives::Impl::update()
 {
     // Update the extended copy of the known tiles
     copy_line_span(m_known_tiles_extended_copy.line_span(), m_known_tiles);
+    if (m_enable_bitboard)
+    {
+        m_empty_tiles.assign(m_known_tiles, Tile::EMPTY);
+        m_filled_tiles.assign(m_known_tiles, Tile::FILLED);
+    }
 
     auto& range_l = bidirectional_range<false>();
     auto& range_r = bidirectional_range<true>();
@@ -1106,8 +1171,123 @@ LineAlternatives::Reduction LineAlternatives::Impl::reduce_all_alternatives_dp(F
     return Reduction { std::move(reduced_line_raw), alternatives, true };
 }
 
-LineAlternatives::LineAlternatives(const LineConstraint& constraint, const LineSpan& known_tiles, binomial::Cache& binomial)
-    : p_impl(std::make_unique<Impl>(constraint, known_tiles, binomial))
+LineAlternatives::Reduction LineAlternatives::Impl::reduce_all_alternatives_freedom(FreedomReductionStats* stats)
+{
+    struct Painting
+    {
+        std::vector<Tile> tiles;
+        NbAlt alternatives = 0;
+    };
+
+    if (stats != nullptr)
+        *stats = FreedomReductionStats{};
+
+    const auto& range = m_bidirectional_range;
+    const std::size_t segment_count = static_cast<std::size_t>(std::distance(range.m_constraint_begin, range.m_constraint_end));
+    if (segment_count == 0u)
+    {
+        Line reduced_line_raw = line_from_line_span(m_known_tiles);
+        LineSpanW reduced_line(reduced_line_raw);
+        for (int index = range.m_line_begin; index < range.m_line_end; ++index)
+            reduced_line[index] = Tile::EMPTY;
+        const bool match = check_compatibility_bw<false>(reduced_line, range.m_line_begin, range.m_line_end);
+        if (stats != nullptr)
+            stats->states_computed = 1u;
+        return Reduction { std::move(reduced_line_raw), match ? NbAlt{1} : NbAlt{0}, true };
+    }
+    const std::size_t freedom = m_remaining_zeros;
+    const std::size_t width = segment_count + 1u;
+
+    std::vector<Tile> known;
+    known.reserve(static_cast<std::size_t>(range.m_line_end - range.m_line_begin) + 1u);
+    known.push_back(Tile::EMPTY);
+    for (int index = range.m_line_begin; index < range.m_line_end; ++index)
+        known.push_back(m_known_tiles[index]);
+
+    const auto prefix_matches = [&known](const std::vector<Tile>& painting) {
+        if (painting.size() > known.size())
+            return false;
+        for (std::size_t index = 0; index < painting.size(); ++index)
+            if (painting[index] != Tile::UNKNOWN && known[index] != Tile::UNKNOWN && painting[index] != known[index])
+                return false;
+        return true;
+    };
+
+    const auto join = [](Painting first, const Painting& second) {
+        if (first.alternatives == 0)
+            return second;
+        if (second.alternatives == 0)
+            return first;
+        assert(first.tiles.size() == second.tiles.size());
+        for (std::size_t index = 0; index < first.tiles.size(); ++index)
+            if (first.tiles[index] != second.tiles[index])
+                first.tiles[index] = Tile::UNKNOWN;
+        binomial::add(first.alternatives, second.alternatives);
+        return first;
+    };
+
+    std::vector<Painting> table((freedom + 1u) * width);
+    const auto state = [&table, width](std::size_t f, std::size_t j) -> Painting& {
+        return table[f * width + j];
+    };
+
+    for (std::size_t f = 0; f <= freedom; ++f)
+    {
+        Painting base;
+        base.tiles.assign(f, Tile::EMPTY);
+        if (prefix_matches(base.tiles))
+            base.alternatives = 1;
+        state(f, 0u) = std::move(base);
+        if (stats != nullptr)
+            ++stats->states_computed;
+
+        for (std::size_t j = 1; j <= segment_count; ++j)
+        {
+            Painting paint_zero;
+            if (f == 0u)
+            {
+                if (stats != nullptr)
+                    ++stats->zero_freedom_prunes;
+            }
+            else if (state(f - 1u, j).alternatives != 0)
+            {
+                paint_zero = state(f - 1u, j);
+                paint_zero.tiles.push_back(Tile::EMPTY);
+                if (!prefix_matches(paint_zero.tiles))
+                    paint_zero = Painting{};
+            }
+
+            Painting paint_block;
+            if (state(f, j - 1u).alternatives != 0)
+            {
+                paint_block = state(f, j - 1u);
+                paint_block.tiles.push_back(Tile::EMPTY);
+                const auto segment = static_cast<std::size_t>(range.m_constraint_begin[static_cast<std::ptrdiff_t>(j - 1u)]);
+                paint_block.tiles.insert(paint_block.tiles.end(), segment, Tile::FILLED);
+                if (!prefix_matches(paint_block.tiles))
+                    paint_block = Painting{};
+            }
+
+            state(f, j) = join(std::move(paint_zero), paint_block);
+            if (stats != nullptr)
+                ++stats->states_computed;
+        }
+    }
+
+    Line reduced_line_raw = line_from_line_span(m_known_tiles);
+    const Painting& result = state(freedom, segment_count);
+    if (result.alternatives == 0)
+        return Reduction { std::move(reduced_line_raw), 0, true };
+
+    assert(result.tiles.size() == known.size());
+    LineSpanW reduced_line(reduced_line_raw);
+    for (std::size_t index = 1u; index < result.tiles.size(); ++index)
+        reduced_line[range.m_line_begin + static_cast<int>(index - 1u)] = result.tiles[index];
+    return Reduction { std::move(reduced_line_raw), result.alternatives, true };
+}
+
+LineAlternatives::LineAlternatives(const LineConstraint& constraint, const LineSpan& known_tiles, binomial::Cache& binomial, bool enable_bitboard)
+    : p_impl(std::make_unique<Impl>(constraint, known_tiles, binomial, enable_bitboard))
 {
 }
 
@@ -1143,6 +1323,18 @@ LineAlternatives::Reduction LineAlternatives::full_reduction_dp(FullReductionBuf
         return from_line(p_impl->m_known_tiles, 0, false);
 
     return p_impl->reduce_all_alternatives_dp(buffers);
+}
+
+LineAlternatives::Reduction LineAlternatives::full_reduction_freedom(FreedomReductionStats* stats)
+{
+    const bool valid = p_impl->update();
+    if (!valid)
+    {
+        if (stats != nullptr)
+            *stats = FreedomReductionStats{};
+        return from_line(p_impl->m_known_tiles, 0, false);
+    }
+    return p_impl->reduce_all_alternatives_freedom(stats);
 }
 
 LineAlternatives::Reduction LineAlternatives::linear_reduction()

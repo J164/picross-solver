@@ -46,12 +46,12 @@ std::vector<LineConstraint> build_constraints_from(Line::Type type, const InputG
     return output;
 }
 
-std::vector<LineAlternatives> build_line_alternatives_from(Line::Type type, const std::vector<LineConstraint>& constraints, const Grid& grid, binomial::Cache& binomial)
+std::vector<LineAlternatives> build_line_alternatives_from(Line::Type type, const std::vector<LineConstraint>& constraints, const Grid& grid, binomial::Cache& binomial, bool enable_bitboard)
 {
     std::vector<LineAlternatives> output;
     output.reserve(constraints.size());
     Line::Index idx = 0;
-    std::transform(constraints.cbegin(), constraints.cend(), std::back_inserter(output), [type, &grid, &idx, &binomial](const auto& c) { return LineAlternatives(c, grid.get_line(type, idx++), binomial); });
+    std::transform(constraints.cbegin(), constraints.cend(), std::back_inserter(output), [type, &grid, &idx, &binomial, enable_bitboard](const auto& c) { return LineAlternatives(c, grid.get_line(type, idx++), binomial, enable_bitboard); });
     return output;
 }
 
@@ -186,8 +186,8 @@ WorkGrid<SolverPolicy>::WorkGrid(const InputGrid& grid, const SolverPolicy& solv
 
     m_constraints[Line::ROW] = build_constraints_from(Line::ROW, grid);
     m_constraints[Line::COL] = build_constraints_from(Line::COL, grid);
-    m_alternatives[Line::ROW] = build_line_alternatives_from(Line::ROW, m_constraints[Line::ROW], static_cast<const Grid&>(*this), *m_binomial);
-    m_alternatives[Line::COL] = build_line_alternatives_from(Line::COL, m_constraints[Line::COL], static_cast<const Grid&>(*this), *m_binomial);
+    m_alternatives[Line::ROW] = build_line_alternatives_from(Line::ROW, m_constraints[Line::ROW], static_cast<const Grid&>(*this), *m_binomial, m_flags.enable_bitboard);
+    m_alternatives[Line::COL] = build_line_alternatives_from(Line::COL, m_constraints[Line::COL], static_cast<const Grid&>(*this), *m_binomial, m_flags.enable_bitboard);
     m_line_completed[Line::ROW].resize(height(), false);
     m_line_completed[Line::COL].resize(width(), false);
     m_line_has_updates[Line::ROW].resize(height(), false);
@@ -250,8 +250,8 @@ WorkGrid<SolverPolicy>::WorkGrid(const WorkGrid& parent)
 
     m_constraints[Line::ROW] = parent.m_constraints[Line::ROW];
     m_constraints[Line::COL] = parent.m_constraints[Line::COL];
-    m_alternatives[Line::ROW] = build_line_alternatives_from(Line::ROW, m_constraints[Line::ROW], static_cast<const Grid&>(*this), *m_binomial);
-    m_alternatives[Line::COL] = build_line_alternatives_from(Line::COL, m_constraints[Line::COL], static_cast<const Grid&>(*this), *m_binomial);
+    m_alternatives[Line::ROW] = build_line_alternatives_from(Line::ROW, m_constraints[Line::ROW], static_cast<const Grid&>(*this), *m_binomial, m_flags.enable_bitboard);
+    m_alternatives[Line::COL] = build_line_alternatives_from(Line::COL, m_constraints[Line::COL], static_cast<const Grid&>(*this), *m_binomial, m_flags.enable_bitboard);
 }
 
 template <typename SolverPolicy>
@@ -757,7 +757,8 @@ typename WorkGrid<SolverPolicy>::PassStatus WorkGrid<SolverPolicy>::single_line_
     if (m_grid_stats != nullptr) { m_grid_stats->nb_single_line_full_reduction++; }
     assert(m_full_reduction_buffers);
     auto& alternatives = m_alternatives[type][index];
-    const auto full_reduction = m_flags.enable_dp_line_solver ? alternatives.full_reduction_dp(m_full_reduction_buffers.get()) : alternatives.full_reduction(m_full_reduction_buffers.get());
+    const auto full_reduction = m_flags.enable_freedom_line_solver ? alternatives.full_reduction_freedom()
+        : (m_flags.enable_dp_line_solver ? alternatives.full_reduction_dp(m_full_reduction_buffers.get()) : alternatives.full_reduction(m_full_reduction_buffers.get()));
 
     // If the list of alternative lines is empty, it means the grid data is contradictory
     if (full_reduction.nb_alternatives == 0)
@@ -1793,8 +1794,9 @@ void WorkGrid<SolverPolicy>::fill_cache_with_orthogonal_lines(LineId line_id)
             {
                 orth_line[line_id.m_index] = key;
                 assert(m_full_reduction_buffers);
-                LineAlternatives orth_alternatives(constraint, orth_line, *m_binomial);
-                const auto reduction = m_flags.enable_dp_line_solver ? orth_alternatives.full_reduction_dp(m_full_reduction_buffers.get()) : orth_alternatives.full_reduction(m_full_reduction_buffers.get());
+                LineAlternatives orth_alternatives(constraint, orth_line, *m_binomial, m_flags.enable_bitboard);
+                const auto reduction = m_flags.enable_freedom_line_solver ? orth_alternatives.full_reduction_freedom()
+                    : (m_flags.enable_dp_line_solver ? orth_alternatives.full_reduction_dp(m_full_reduction_buffers.get()) : orth_alternatives.full_reduction(m_full_reduction_buffers.get()));
                 m_branch_line_cache.store_line(orth_line_id, key, reduction.reduced_line, reduction.nb_alternatives);
                 if (m_grid_stats != nullptr)
                 {

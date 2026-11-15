@@ -45,13 +45,19 @@ std::ostream& operator<<(std::ostream& out, const SegmentRange& segment_range);
 
 struct FullReductionBuffers;
 
+struct FreedomReductionStats
+{
+    std::size_t states_computed = 0u;
+    std::size_t zero_freedom_prunes = 0u;
+};
+
 // Given a constraint, recursively build the possible alternatives of a Line and reduce them.
 class LineAlternatives
 {
 public:
     using NbAlt = std::uint32_t;
 public:
-    LineAlternatives(const LineConstraint& constraint, const LineSpan& known_tiles, binomial::Cache& binomial);
+    LineAlternatives(const LineConstraint& constraint, const LineSpan& known_tiles, binomial::Cache& binomial, bool enable_bitboard = false);
     LineAlternatives(const LineAlternatives& other, const LineSpan& known_tiles);
     ~LineAlternatives();
     // Movable
@@ -74,6 +80,7 @@ public:
     Reduction linear_reduction();
 
     Reduction full_reduction_dp(FullReductionBuffers* buffers = nullptr);
+    Reduction full_reduction_freedom(FreedomReductionStats* stats = nullptr);
 
     // For test purpose only
     std::pair<bool, std::vector<SegmentRange>> find_segments_range() const;

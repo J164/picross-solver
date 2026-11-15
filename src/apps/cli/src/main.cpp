@@ -181,6 +181,12 @@ int main(int argc, char *argv[])
         "dp-line-solver", { "--dp-line-solver" },
         "Enable the DP Line Solver optimization", 0 },
       {
+        "freedom", { "--freedom" },
+        "Enable the Chen-Lin freedom-parameter line solver", 0 },
+      {
+        "bitboard", { "--bitboard" },
+        "Enable portable bitboard line operations", 0 },
+      {
         "fp1", { "--fp1" },
         "Enable the FP1 optimization", 0 },
       {
@@ -277,6 +283,8 @@ int main(int argc, char *argv[])
     /* Solver flags */
     picross::SolverFlags flags;
     flags.enable_dp_line_solver = args["dp-line-solver"];
+    flags.enable_freedom_line_solver = args["freedom"];
+    flags.enable_bitboard = args["bitboard"];
     flags.enable_fp1 = args["fp1"];
     flags.enable_fp2 = args["fp2"];
     flags.enable_pixel_branching = args["pixel-branching"];

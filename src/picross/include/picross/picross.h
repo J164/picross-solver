@@ -124,6 +124,8 @@ std::ostream& operator<<(std::ostream& out, Solver::Status status);
  */
 struct SolverFlags {
     bool enable_dp_line_solver = false;
+    bool enable_freedom_line_solver = false;
+    bool enable_bitboard = false;
     bool enable_fp1 = false;
     bool enable_fp2 = false;
     bool enable_pixel_branching = false;
