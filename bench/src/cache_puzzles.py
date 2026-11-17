@@ -1,8 +1,12 @@
 import hashlib
 import json
+import random
 import re
+import time
+import urllib.parse
 import urllib.request
 import tarfile
+from xml.etree import ElementTree
 from pathlib import Path
 from typing import TypedDict, Callable
 
@@ -24,6 +28,12 @@ PUZZLE_INDEX = CACHE_DIR / "puzzles.json"
 SAMPLE_SIMPSON_URL = "https://webpbn.com/survey/puzzles/sample-simpson.tgz"
 RAND30_URL = "https://webpbn.com/survey/rand30.tgz"
 TOURNAMENT_URL = "https://raw.githubusercontent.com/zxkyjimmy/NonogramRecord/master"
+WEBPBN_EXPORT_URL = "https://webpbn.com/export.cgi"
+WEBPBN_RAW_DIR = RAW_DIR / "webpbn"
+WEBPBN_MAX_ID = 36000
+WEBPBN_SAMPLE_IDS = 1500
+WEBPBN_SEED = 598
+WEBPBN_REQUEST_DELAY_S = 1.0
 TOURNAMENTS = ["icga2016", "icga2017", "icga2018", "icga2019", "icga2020", "icga2021", "icga2022", "icga2023", "taai2011", "taai2013", "taai2014", "taai2015", "taai2016", "taai2017", "taai2018", "taai2019", "taai2020", "taai2021", "taai2022", "tcga2012", "tcga2013", "tcga2014", "tcga2015", "tcga2016", "tcga2017", "tcga2019", "tcga2020", "tcga2021", "tcga2022", "tcga2023"]
 
 def save_non(non: bytes) -> str:
@@ -130,10 +140,54 @@ def cache_tournament_puzzles() -> list[RawPuzzle]:
 
     return puzzles
 
+def fetch_webpbn_xml(id: int) -> str:
+    path = WEBPBN_RAW_DIR / f"{id}.xml"
+    if path.exists():
+        return path.read_text()
+
+    WEBPBN_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    data = urllib.parse.urlencode({"id": id, "fmt": "xml", "go": 1}).encode()
+    req = urllib.request.Request(WEBPBN_EXPORT_URL, data=data, headers={"User-Agent": "nonogram-benchmark/1.0"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        xml = resp.read().decode(errors="replace")
+
+    path.write_text(xml)
+
+    time.sleep(WEBPBN_REQUEST_DELAY_S)
+    return xml
+
+def webpbn_xml_to_non(xml: str) -> bytes | None:
+    if not xml.lstrip().startswith("<?xml"):
+        return None
+
+    puzzle = ElementTree.fromstring(xml).find("puzzle")
+    if puzzle is None or len(puzzle.findall("color")) != 2 or "published" not in (puzzle.findtext("note") or ""):
+        return None
+
+    clues = {}
+    for group in puzzle.findall("clues"):
+        clues[group.get("type")] = [",".join(count.text or "" for count in line.findall("count")) or "0" for line in group.findall("line")]
+
+    if "rows" not in clues or "columns" not in clues:
+        return None
+
+    return clues_to_non(clues["rows"], clues["columns"])
+
+def cache_webpbn_puzzles() -> list[RawPuzzle]:
+    puzzles: list[RawPuzzle] = []
+    ids = random.Random(WEBPBN_SEED).sample(range(1, WEBPBN_MAX_ID + 1), WEBPBN_SAMPLE_IDS)
+    for id in ids:
+        non = webpbn_xml_to_non(fetch_webpbn_xml(id))
+        if non is not None:
+            puzzles.append({ "name": f"webpbn#{id}", "sha": save_non(non), "source": "webpbn" })
+
+    return puzzles
+
 def cache_puzzles() -> list[RawPuzzle]:
     puzzles = cache_archived_puzzles(SAMPLE_SIMPSON_URL, simpson_to_non, "sample_simpson")
     puzzles += cache_archived_puzzles(RAND30_URL, rand30_to_non, "rand30")
     puzzles += cache_tournament_puzzles()
+    puzzles += cache_webpbn_puzzles()
     return puzzles
 
 def read_non_dimensions(path: Path) -> tuple[int, int]:
@@ -175,6 +229,9 @@ def save_puzzles_index(puzzles: list[Puzzle]) -> None:
 def get_puzzles() -> list[Puzzle]:
     cached = load_puzzles_index()
     if cached is not None:
+        if not any(puzzle["source"] == "webpbn" for puzzle in cached):
+            cached += add_dimensions(cache_webpbn_puzzles())
+            save_puzzles_index(cached)
         return add_derived_fields(cached)
 
     puzzles = add_dimensions(cache_puzzles())
