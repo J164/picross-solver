@@ -164,9 +164,12 @@ def webpbn_xml_to_non(xml: str) -> bytes | None:
     if puzzle is None or len(puzzle.findall("color")) != 2 or "published" not in (puzzle.findtext("note") or ""):
         return None
 
+    if any(int(count.text or 0) == 0 for count in puzzle.iter("count")):
+        return None
+
     clues = {}
     for group in puzzle.findall("clues"):
-        clues[group.get("type")] = [",".join(count.text or "" for count in line.findall("count")) or "0" for line in group.findall("line")]
+        clues[group.get("type")] = [",".join(count.text.strip() for count in line.findall("count")) or "0" for line in group.findall("line")]
 
     if "rows" not in clues or "columns" not in clues:
         return None
